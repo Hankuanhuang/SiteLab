@@ -1,0 +1,274 @@
+:root {
+  color-scheme: light;
+  --bg: #f5f7f8;
+  --ink: #172026;
+  --muted: #5e6a70;
+  --line: #c9d2d6;
+  --panel: #ffffff;
+  --accent: #0f766e;
+  --accent-strong: #0b4f4a;
+  --warn: #9a3412;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+button,
+input {
+  font: inherit;
+}
+
+button,
+.filePicker {
+  border: 1px solid var(--accent);
+  background: var(--accent);
+  color: #fff;
+  min-height: 42px;
+  padding: 0 16px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+button:hover,
+.filePicker:hover {
+  background: var(--accent-strong);
+}
+
+button.secondary {
+  background: #fff;
+  color: var(--accent);
+}
+
+.app {
+  min-height: 100vh;
+}
+
+.panel {
+  width: min(720px, calc(100vw - 32px));
+  margin: 48px auto;
+  padding: 28px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  display: grid;
+  gap: 22px;
+}
+
+.eyebrow {
+  margin: 0 0 6px;
+  color: var(--accent-strong);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+h1,
+h2 {
+  margin: 0;
+  letter-spacing: 0;
+}
+
+h1 {
+  font-size: clamp(30px, 5vw, 46px);
+}
+
+h2 {
+  font-size: 22px;
+}
+
+.lede,
+.status {
+  margin: 10px 0 0;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.status.error {
+  color: var(--warn);
+}
+
+.filePicker {
+  display: inline-grid;
+  place-items: center;
+  width: max-content;
+}
+
+.filePicker input {
+  position: absolute;
+  inline-size: 1px;
+  block-size: 1px;
+  opacity: 0;
+}
+
+.pageOptions {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 12px;
+}
+
+.workspace {
+  min-height: 100vh;
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 360px;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  gap: 12px;
+  padding: 12px;
+}
+
+.topbar,
+.shapePrompt,
+.dimensionForm,
+.output {
+  background: rgba(255, 255, 255, 0.94);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.topbar {
+  grid-column: 1 / -1;
+  position: relative;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 16px;
+}
+
+.actions,
+.shapePrompt {
+  display: flex;
+  gap: 10px;
+}
+
+.shapePrompt {
+  grid-column: 1;
+  position: relative;
+  z-index: 2;
+  padding: 12px;
+  align-items: center;
+  width: max-content;
+}
+
+.canvasShell {
+  grid-column: 1 / -1;
+  grid-row: 1 / 4;
+  position: absolute;
+  inset: 12px;
+  min-height: calc(100vh - 24px);
+  height: calc(100vh - 24px);
+  overflow: hidden;
+  background: #e7ecee;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  touch-action: none;
+  z-index: 0;
+}
+
+#pageImage,
+#drawCanvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+#pageImage {
+  object-fit: contain;
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+#drawCanvas {
+  cursor: crosshair;
+}
+
+.dimensionForm {
+  grid-column: 1;
+  position: relative;
+  z-index: 2;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(180px, 1fr)) auto;
+  gap: 12px;
+  padding: 12px;
+  align-items: end;
+}
+
+.dimensionForm label {
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.dimensionForm input {
+  width: 100%;
+  min-height: 40px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 0 10px;
+  color: var(--ink);
+}
+
+.output {
+  grid-column: 2;
+  grid-row: 2 / 4;
+  position: relative;
+  z-index: 2;
+  min-width: 0;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+.outputHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px;
+  border-bottom: 1px solid var(--line);
+}
+
+pre {
+  margin: 0;
+  padding: 12px;
+  overflow: auto;
+  font-size: 13px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+}
+
+.hidden {
+  display: none !important;
+}
+
+@media (max-width: 900px) {
+  .workspace {
+    grid-template-columns: 1fr;
+  }
+
+  .output {
+    grid-column: 1;
+    grid-row: auto;
+    min-height: 220px;
+  }
+
+  .dimensionForm {
+    grid-template-columns: 1fr;
+  }
+
+  .canvasShell {
+    height: 64vh;
+  }
+}
