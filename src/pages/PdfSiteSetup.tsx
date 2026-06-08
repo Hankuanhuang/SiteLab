@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as pdfjs from "pdfjs-dist";
 import pdfWorker from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 import { defaultSiteData } from "../models/Site";
@@ -27,6 +27,7 @@ type SelectionMode = "crop" | "boundaryRectangle" | "boundaryPolygon" | ContextZ
 export function PdfSiteSetup() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const viewportRef = useRef<HTMLDivElement>(null);
+  const workspaceRef = useRef<HTMLElement>(null);
   const [pdfDocument, setPdfDocument] = useState<PdfDocument>();
   const [pdfName, setPdfName] = useState("");
   const [pageNumber, setPageNumber] = useState(1);
@@ -56,6 +57,7 @@ export function PdfSiteSetup() {
   const [siteWidthDraft, setSiteWidthDraft] = useState(String(defaultSiteData.scale.width_m));
   const [dimensionsError, setDimensionsError] = useState("");
   const [error, setError] = useState("");
+  const [camera, setCamera] = useState({ scale: 1, x: 18, y: 18 });
 
   const canContinue = Boolean(
     pdfDocument &&
@@ -70,6 +72,27 @@ export function PdfSiteSetup() {
     () => Array.from({ length: pageCount }, (_, index) => index + 1),
     [pageCount],
   );
+
+  const fitBounds = useCallback((bounds: SelectionRect) => {
+    const workspace = workspaceRef.current;
+    if (!workspace || bounds.width <= 0 || bounds.height <= 0) return;
+    const paddingRatio = 0.075;
+    const availableWidth = workspace.clientWidth * (1 - paddingRatio * 2);
+    const availableHeight = workspace.clientHeight * (1 - paddingRatio * 2);
+    const scale = Math.max(0.05, Math.min(availableWidth / bounds.width, availableHeight / bounds.height));
+
+    setCamera({
+      scale,
+      x: (workspace.clientWidth - bounds.width * scale) / 2 - bounds.x * scale,
+      y: (workspace.clientHeight - bounds.height * scale) / 2 - bounds.y * scale,
+    });
+  }, []);
+
+  const fitSite = useCallback(() => {
+    const polygonBounds = polygonBoundary.length >= 3 ? getPointsBounds(polygonBoundary) : undefined;
+    const target = siteShape === "polygon" && polygonBounds ? polygonBounds : cropSelection;
+    if (target) fitBounds(target);
+  }, [cropSelection, fitBounds, polygonBoundary, siteShape]);
 
   const handlePdfUpload = async (file?: File) => {
     if (!file) return;
@@ -142,6 +165,9 @@ export function PdfSiteSetup() {
         setContextZones([]);
         setDraftPolygon([]);
         setSelectedZoneId(undefined);
+        requestAnimationFrame(() =>
+          fitBounds({ x: 0, y: 0, width: canvas.width, height: canvas.height }),
+        );
       }
     }
 
@@ -149,7 +175,38 @@ export function PdfSiteSetup() {
     return () => {
       cancelled = true;
     };
-  }, [pdfDocument, pageNumber, rotation]);
+  }, [fitBounds, pdfDocument, pageNumber, rotation]);
+
+  useEffect(() => {
+    const handleFitShortcut = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (
+        target?.tagName === "INPUT" ||
+        target?.tagName === "SELECT" ||
+        target?.tagName === "TEXTAREA" ||
+        event.ctrlKey ||
+        event.metaKey ||
+        event.altKey
+      ) {
+        return;
+      }
+      if (event.key.toLowerCase() === "f") {
+        event.preventDefault();
+        fitSite();
+      }
+    };
+
+    window.addEventListener("keydown", handleFitShortcut);
+    return () => window.removeEventListener("keydown", handleFitShortcut);
+  }, [fitSite]);
+
+  useEffect(() => {
+    const workspace = workspaceRef.current;
+    if (!workspace) return;
+    const observer = new ResizeObserver(() => fitSite());
+    observer.observe(workspace);
+    return () => observer.disconnect();
+  }, [fitSite]);
 
   const rotatePage = (degrees: number) => {
     setCropSelection(undefined);
@@ -186,8 +243,8 @@ export function PdfSiteSetup() {
           };
 
     return {
-      x: clamp(event.clientX - rect.left, limits.minX, limits.maxX),
-      y: clamp(event.clientY - rect.top, limits.minY, limits.maxY),
+      x: clamp((event.clientX - rect.left) / camera.scale, limits.minX, limits.maxX),
+      y: clamp((event.clientY - rect.top) / camera.scale, limits.minY, limits.maxY),
     };
   };
 
@@ -249,6 +306,7 @@ export function PdfSiteSetup() {
         setEdgeLengthDrafts([]);
         setContextZones([]);
         setSelectedZoneId(undefined);
+        requestAnimationFrame(() => fitBounds(next));
       } else if (selectionMode === "boundaryRectangle") {
         setBoundarySelection(next);
       }
@@ -277,6 +335,8 @@ export function PdfSiteSetup() {
     setEdgeLengthDrafts(draftBoundaryPolygon.map(() => ""));
     setDraftBoundaryPolygon([]);
     setPolygonError("");
+    const bounds = getPointsBounds(draftBoundaryPolygon);
+    if (bounds) requestAnimationFrame(() => fitBounds(bounds));
   };
 
   const deleteSelectedZone = () => {
@@ -684,11 +744,26 @@ export function PdfSiteSetup() {
           </section>
         </aside>
 
-        <section className="pdfWorkspace">
+        <section ref={workspaceRef} className="pdfWorkspace">
+          <button
+            className="fitSiteButton secondaryButton"
+            type="button"
+            disabled={!cropSelection}
+            onClick={fitSite}
+            title="Fit cropped site (F)"
+          >
+            Fit Site
+          </button>
           <div
             ref={viewportRef}
             className="pdfViewport"
-            style={{ width: renderSize.width || undefined, height: renderSize.height || undefined }}
+            style={{
+              width: renderSize.width || undefined,
+              height: renderSize.height || undefined,
+              left: camera.x,
+              top: camera.y,
+              transform: `scale(${camera.scale})`,
+            }}
             onPointerDown={handlePointerDown}
             onPointerMove={handlePointerMove}
             onPointerUp={handlePointerUp}
