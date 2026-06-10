@@ -38,15 +38,6 @@ export function BuildingShape({
   const minimumHandleSize = Math.min(ppmX, ppmY);
   const buildingWidthPx = building.length * ppmX;
   const buildingHeightPx = building.width * ppmY;
-  const labelCenter = getRotatedLabelCenter(
-    building.x * ppmX,
-    building.y * ppmY,
-    buildingWidthPx,
-    buildingHeightPx,
-    building.rotation,
-  );
-  const labelWidth = Math.max(72, Math.min(180, buildingWidthPx));
-  const labelHeight = 46;
 
   useEffect(() => {
     if (isSelected && rectRef.current && transformerRef.current) {
@@ -134,32 +125,13 @@ export function BuildingShape({
           onEditEnd();
         }}
       />
-      <Text
-        x={labelCenter.x - labelWidth / 2}
-        y={labelCenter.y - labelHeight / 2}
-        width={labelWidth}
-        height={labelHeight}
-        rotation={0}
-        text={`${building.label}\n(${building.programs.length} ${building.programs.length === 1 ? "space" : "spaces"})`}
-        fill="#ffffff"
-        fontSize={13}
-        fontStyle="bold"
-        align="center"
-        verticalAlign="middle"
-        lineHeight={1.25}
-        listening={false}
-        wrap="word"
-        ellipsis
+      <BuildingProgramLabel
+        building={building}
+        ppmX={ppmX}
+        ppmY={ppmY}
+        widthPx={buildingWidthPx}
+        heightPx={buildingHeightPx}
       />
-      {building.programs.length ? (
-        <ProgramZones
-          building={building}
-          ppmX={ppmX}
-          ppmY={ppmY}
-          widthPx={buildingWidthPx}
-          heightPx={buildingHeightPx}
-        />
-      ) : null}
       {isSelected ? (
         <>
           {showDimensionAnnotations ? <BuildingDimensions building={building} ppmX={ppmX} ppmY={ppmY} /> : null}
@@ -210,17 +182,6 @@ function keepNodeInsideSite(node: Konva.Node, site: SiteDimensions, ppmX: number
 
 function normalizeRotation(rotation: number) {
   return ((rotation % 360) + 360) % 360;
-}
-
-function getRotatedLabelCenter(x: number, y: number, width: number, height: number, rotation: number) {
-  const radians = (rotation * Math.PI) / 180;
-  const localCenterX = width / 2;
-  const localCenterY = height / 2;
-
-  return {
-    x: x + localCenterX * Math.cos(radians) - localCenterY * Math.sin(radians),
-    y: y + localCenterX * Math.sin(radians) + localCenterY * Math.cos(radians),
-  };
 }
 
 function BuildingDimensions({
@@ -287,7 +248,7 @@ function BuildingDimensions({
   );
 }
 
-function ProgramZones({
+function BuildingProgramLabel({
   building,
   ppmX,
   ppmY,
@@ -300,33 +261,64 @@ function ProgramZones({
   widthPx: number;
   heightPx: number;
 }) {
-  const zoneHeight = heightPx / building.programs.length;
+  const padding = clamp(Math.min(widthPx, heightPx) * 0.06, 4, 12);
+  const contentWidth = Math.max(1, widthPx - padding * 2);
+  const contentHeight = Math.max(1, heightPx - padding * 2);
+  const sizeBasis = Math.min(widthPx, heightPx);
+  const nameFontSize = clamp(sizeBasis * 0.13, 10, 18);
+  const programFontSize = clamp(sizeBasis * 0.085, 8, 13);
+  const nameHeight = nameFontSize * 1.3;
+  const programLineHeight = programFontSize * 1.35;
+  const listGap = building.programs.length ? clamp(programFontSize * 0.45, 3, 6) : 0;
+  const availableProgramHeight = Math.max(0, contentHeight - nameHeight - listGap);
+  const visibleProgramCount = Math.min(
+    building.programs.length,
+    Math.floor(availableProgramHeight / programLineHeight),
+  );
+  const visiblePrograms = building.programs.slice(0, visibleProgramCount);
+  const stackHeight = nameHeight + listGap + visiblePrograms.length * programLineHeight;
+  const stackTop = padding + Math.max(0, (contentHeight - stackHeight) / 2);
 
   return (
-    <Group x={building.x * ppmX} y={building.y * ppmY} rotation={building.rotation} listening={false}>
-      {building.programs.map((program, index) => (
-        <Group key={`${program.name}-${index}`} y={index * zoneHeight}>
-          <Rect
-            width={widthPx}
-            height={zoneHeight}
-            fill="rgba(255, 255, 255, 0.14)"
-            stroke="rgba(255, 255, 255, 0.72)"
-            strokeWidth={1}
-          />
-          <Text
-            x={4}
-            y={Math.max(2, zoneHeight / 2 - 8)}
-            width={Math.max(1, widthPx - 8)}
-            height={16}
-            text={program.name}
-            fill="#ffffff"
-            fontSize={11}
-            fontStyle="bold"
-            align="center"
-            verticalAlign="middle"
-            ellipsis
-          />
-        </Group>
+    <Group
+      x={building.x * ppmX}
+      y={building.y * ppmY}
+      rotation={building.rotation}
+      clipX={0}
+      clipY={0}
+      clipWidth={widthPx}
+      clipHeight={heightPx}
+      listening={false}
+    >
+      <Text
+        x={padding}
+        y={stackTop}
+        width={contentWidth}
+        height={nameHeight}
+        text={building.label}
+        fill="#ffffff"
+        fontSize={nameFontSize}
+        fontStyle="bold"
+        align="center"
+        verticalAlign="middle"
+        wrap="none"
+        ellipsis
+      />
+      {visiblePrograms.map((program, index) => (
+        <Text
+          key={`${program.name}-${index}`}
+          x={padding}
+          y={stackTop + nameHeight + listGap + index * programLineHeight}
+          width={contentWidth}
+          height={programLineHeight}
+          text={`${index + 1}. ${program.name} (${formatArea(program.area)}m\u00b2)`}
+          fill="rgba(255, 255, 255, 0.94)"
+          fontSize={programFontSize}
+          align="center"
+          verticalAlign="middle"
+          wrap="none"
+          ellipsis
+        />
       ))}
     </Group>
   );
@@ -334,4 +326,12 @@ function ProgramZones({
 
 function formatMeasurement(value: number) {
   return value.toFixed(1);
+}
+
+function formatArea(value: number) {
+  return Number.isInteger(value) ? String(value) : value.toFixed(1);
+}
+
+function clamp(value: number, min: number, max: number) {
+  return Math.max(min, Math.min(max, value));
 }

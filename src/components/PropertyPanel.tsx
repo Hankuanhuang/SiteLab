@@ -97,7 +97,7 @@ export function PropertyPanel({
 
   return (
     <aside className="propertyPanel">
-      <section>
+      <section className="siteDimensionsSection">
         <p className="eyebrow">Site</p>
         <label>
           <span>Site Length (m)</span>
@@ -119,6 +119,9 @@ export function PropertyPanel({
             onChange={(event) => onSiteChange({ ...site, width: Number(event.target.value) || 1 })}
           />
         </label>
+      </section>
+
+      <section className="backgroundSection">
         <label>
           <span>Canvas Background Image</span>
           <input
@@ -393,7 +396,7 @@ export function PropertyPanel({
         )}
       </section>
 
-      <section>
+      <section className="buildingSection">
         <p className="eyebrow">Building</p>
         {selectedBuilding ? (
           <div className="buildingFields">

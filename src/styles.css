@@ -298,6 +298,18 @@ p {
   gap: 14px;
 }
 
+.propertyPanel .siteDimensionsSection {
+  order: -3;
+}
+
+.propertyPanel .buildingSection {
+  order: -2;
+}
+
+.propertyPanel .backgroundSection {
+  order: -1;
+}
+
 .propertyPanel .eyebrow {
   margin-bottom: 2px;
   font-size: 18px;
