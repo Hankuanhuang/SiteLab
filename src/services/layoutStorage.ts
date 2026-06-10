@@ -1,4 +1,5 @@
 import type {
+  AncillaryBuilding,
   Building,
   BuildingColor,
   ContextZone,
@@ -10,6 +11,7 @@ import type {
   SiteDimensions,
   SiteLabel,
   SiteShape,
+  SetupRoad,
   Tree,
 } from "../types/layout";
 
@@ -35,15 +37,19 @@ export function buildLayoutJson(
   trees: Tree[] = [],
   sidewalks: Sidewalk[] = [],
   contextZones: ContextZone[] = [],
+  roads: SetupRoad[] = [],
+  ancillaryBuildings: AncillaryBuilding[] = [],
   entrances: Entrance[] = [],
   projectName = "Untitled Layout",
   savedAt = new Date().toISOString(),
   siteShape: SiteShape = "rectangle",
   siteVertices: Array<{ x: number; y: number }> = [],
   edgeLengths: number[] = [],
+  projectId?: string,
 ): LayoutExport {
   return {
     version: 1,
+    ...(projectId ? { projectId } : {}),
     projectName: normalizeProjectName(projectName),
     savedAt,
     site: {
@@ -105,6 +111,21 @@ export function buildLayoutJson(
         y: round(point.y),
       })),
     })),
+    roads: roads.map((road) => ({
+      ...road,
+      width: round(road.width),
+      x: round(road.x),
+      y: round(road.y),
+      rectangleWidth: round(road.rectangleWidth),
+      rectangleHeight: round(road.rectangleHeight),
+    })),
+    ancillaryBuildings: ancillaryBuildings.map((building) => ({
+      ...building,
+      points: building.points.map((point) => ({
+        x: round(point.x),
+        y: round(point.y),
+      })),
+    })),
     entrances: entrances.map((entrance) => ({
       ...entrance,
       x: round(entrance.x),
@@ -135,12 +156,15 @@ export function parseLayoutJson(
   trees: Tree[];
   sidewalks: Sidewalk[];
   contextZones: ContextZone[];
+  roads: SetupRoad[];
+  ancillaryBuildings: AncillaryBuilding[];
   entrances: Entrance[];
   projectName: string;
   savedAt: string;
   siteShape: SiteShape;
   siteVertices: Array<{ x: number; y: number }>;
   edgeLengths: number[];
+  projectId?: string;
 } | undefined {
   if (!isRecord(value)) return undefined;
   if (value.version !== 1) return undefined;
@@ -171,10 +195,15 @@ export function parseLayoutJson(
   if (sidewalks === undefined) return undefined;
   const contextZones = readContextZones(value.contextZones);
   if (contextZones === undefined) return undefined;
+  const roads = readRoads(value.roads);
+  if (roads === undefined) return undefined;
+  const ancillaryBuildings = readAncillaryBuildings(value.ancillaryBuildings);
+  if (ancillaryBuildings === undefined) return undefined;
   const entrances = readEntrances(value.entrances, buildings as Building[]);
   if (entrances === undefined) return undefined;
   const projectName =
     typeof value.projectName === "string" ? normalizeProjectName(value.projectName) : "Untitled Layout";
+  const projectId = typeof value.projectId === "string" && value.projectId ? value.projectId : undefined;
   const savedAt =
     typeof value.savedAt === "string" && !Number.isNaN(Date.parse(value.savedAt))
       ? value.savedAt
@@ -191,12 +220,15 @@ export function parseLayoutJson(
     trees,
     sidewalks,
     contextZones,
+    roads,
+    ancillaryBuildings,
     entrances,
     projectName,
     savedAt,
     siteShape,
     siteVertices,
     edgeLengths,
+    projectId,
   };
 }
 
@@ -331,9 +363,12 @@ function readContextZones(value: unknown): ContextZone[] | undefined {
   if (value === undefined) return [];
   if (!Array.isArray(value)) return undefined;
 
-  const zones = value.map((item) => {
-    if (!isRecord(item) || (item.type !== "greenPark" && item.type !== "residence")) return undefined;
-    if (!Array.isArray(item.points) || item.points.length < 3) return undefined;
+  const zones = value
+    .filter((item) => isRecord(item) && item.type === "greenPark")
+    .map((item) => {
+    if (!isRecord(item) || !Array.isArray(item.points) || item.points.length < 3) {
+      return undefined;
+    }
     const points = item.points.map((point) => {
       if (!isRecord(point)) return undefined;
       const x = readNumber(point.x);
@@ -344,12 +379,75 @@ function readContextZones(value: unknown): ContextZone[] | undefined {
 
     return {
       id: typeof item.id === "string" && item.id ? item.id : crypto.randomUUID(),
-      type: item.type,
+      type: "greenPark" as const,
       points: points as Array<{ x: number; y: number }>,
     };
   });
 
   return zones.some((zone) => zone === undefined) ? undefined : (zones as ContextZone[]);
+}
+
+function readRoads(value: unknown): SetupRoad[] | undefined {
+  if (value === undefined) return [];
+  if (!Array.isArray(value)) return undefined;
+
+  const roads = value.map((item) => {
+    if (!isRecord(item)) return undefined;
+    if (item.type !== "primary" && item.type !== "secondary" && item.type !== "pedestrian") {
+      return undefined;
+    }
+    const width = readPositiveNumber(item.width);
+    const x = readNumber(item.x);
+    const y = readNumber(item.y);
+    const rectangleWidth = readPositiveNumber(item.rectangleWidth);
+    const rectangleHeight = readPositiveNumber(item.rectangleHeight);
+    if (
+      width === undefined ||
+      x === undefined ||
+      y === undefined ||
+      rectangleWidth === undefined ||
+      rectangleHeight === undefined
+    ) {
+      return undefined;
+    }
+
+    return {
+      id: typeof item.id === "string" && item.id ? item.id : crypto.randomUUID(),
+      type: item.type,
+      width,
+      x,
+      y,
+      rectangleWidth,
+      rectangleHeight,
+    };
+  });
+
+  return roads.some((road) => road === undefined) ? undefined : (roads as SetupRoad[]);
+}
+
+function readAncillaryBuildings(value: unknown): AncillaryBuilding[] | undefined {
+  if (value === undefined) return [];
+  if (!Array.isArray(value)) return undefined;
+
+  const buildings = value.map((item) => {
+    if (!isRecord(item) || (item.type !== "rectangle" && item.type !== "polygon")) {
+      return undefined;
+    }
+    const points = readPoints(item.points);
+    if (!points || points.length < 3) return undefined;
+    return {
+      id: typeof item.id === "string" && item.id ? item.id : crypto.randomUUID(),
+      type: item.type,
+      points,
+      label: typeof item.label === "string" && item.label.trim()
+        ? item.label
+        : "Ancillary Building",
+    };
+  });
+
+  return buildings.some((building) => building === undefined)
+    ? undefined
+    : (buildings as AncillaryBuilding[]);
 }
 
 function readEntrances(value: unknown, buildings: Building[]): Entrance[] | undefined {

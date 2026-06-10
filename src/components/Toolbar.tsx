@@ -22,6 +22,8 @@ interface ToolbarProps {
   onSaveLayout: () => void;
   onLoadLayout: (file: File) => void;
   onExportConceptSitePlan: () => void;
+  onOpenConceptPlanGallery: () => void;
+  conceptPlanExportCount: number;
 }
 
 export function Toolbar({
@@ -46,6 +48,8 @@ export function Toolbar({
   onSaveLayout,
   onLoadLayout,
   onExportConceptSitePlan,
+  onOpenConceptPlanGallery,
+  conceptPlanExportCount,
 }: ToolbarProps) {
   const loadInputRef = useRef<HTMLInputElement>(null);
 
@@ -100,6 +104,9 @@ export function Toolbar({
       </button>
       <button className="exportButton" type="button" onClick={onExportConceptSitePlan}>
         Export Concept Site Plan
+      </button>
+      <button className="secondaryButton" type="button" onClick={onOpenConceptPlanGallery}>
+        Concept Plan Gallery ({conceptPlanExportCount})
       </button>
       <button className="loadButton" type="button" onClick={() => loadInputRef.current?.click()}>
         Load Layout

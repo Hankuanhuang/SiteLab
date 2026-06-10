@@ -250,6 +250,188 @@ p {
   display: none;
 }
 
+.conceptGallery {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 12;
+  width: min(460px, 100vw);
+  padding: 20px;
+  overflow-y: auto;
+  border-left: 1px solid var(--line);
+  background: #f4f7f8;
+  box-shadow: -18px 0 48px rgba(15, 23, 42, 0.2);
+}
+
+.conceptGalleryHeader {
+  position: sticky;
+  top: -20px;
+  z-index: 1;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin: -20px -20px 20px;
+  padding: 20px;
+  border-bottom: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.97);
+}
+
+.conceptGalleryHeader h2,
+.conceptPreviewHeader h2 {
+  margin: 0 0 6px;
+  font-size: 24px;
+}
+
+.conceptGalleryHeader p,
+.conceptPreviewHeader p,
+.conceptGalleryCardBody span,
+.conceptGalleryCardBody time {
+  margin: 0;
+  color: var(--muted);
+}
+
+.conceptGalleryGrid {
+  display: grid;
+  gap: 16px;
+}
+
+.conceptGalleryCard {
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #ffffff;
+  box-shadow: 0 5px 16px rgba(15, 23, 42, 0.08);
+}
+
+.conceptGalleryThumbnail {
+  display: block;
+  width: 100%;
+  height: auto;
+  min-height: 0;
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  border-radius: 0;
+  background: #e5eaec;
+}
+
+.conceptGalleryThumbnail:hover {
+  background: #e5eaec;
+}
+
+.conceptGalleryThumbnail img {
+  display: block;
+  width: 100%;
+  aspect-ratio: 7 / 5;
+  object-fit: cover;
+  transition: transform 160ms ease;
+}
+
+.conceptGalleryThumbnail:hover img {
+  transform: scale(1.015);
+}
+
+.conceptGalleryCardBody {
+  display: grid;
+  gap: 5px;
+  padding: 14px 14px 10px;
+}
+
+.conceptGalleryCardBody strong {
+  font-size: 16px;
+}
+
+.conceptGalleryCardBody span,
+.conceptGalleryCardBody time {
+  font-size: 13px;
+}
+
+.conceptGalleryActions {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 8px;
+  padding: 0 14px 14px;
+}
+
+.conceptGalleryActions button {
+  min-width: 0;
+  padding: 0 7px;
+  font-size: 12px;
+}
+
+.conceptGalleryEmpty {
+  display: grid;
+  place-items: center;
+  min-height: 300px;
+  padding: 30px;
+  border: 1px dashed #aebdc2;
+  border-radius: 10px;
+  background: #ffffff;
+  color: var(--muted);
+  text-align: center;
+}
+
+.conceptGalleryEmpty strong {
+  color: var(--ink);
+  font-size: 18px;
+}
+
+.conceptGalleryEmpty p {
+  max-width: 280px;
+  margin: 8px 0 0;
+  line-height: 1.5;
+}
+
+.conceptPreviewBackdrop {
+  z-index: 30;
+}
+
+.conceptPreviewDialog {
+  width: min(1200px, 96vw);
+  max-height: 94vh;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #ffffff;
+  box-shadow: 0 24px 70px rgba(15, 23, 42, 0.34);
+}
+
+.conceptPreviewHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 18px 20px;
+  border-bottom: 1px solid var(--line);
+}
+
+.conceptPreviewImage {
+  min-height: 0;
+  overflow: auto;
+  padding: 20px;
+  background:
+    linear-gradient(45deg, #e9eef0 25%, transparent 25%),
+    linear-gradient(-45deg, #e9eef0 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, #e9eef0 75%),
+    linear-gradient(-45deg, transparent 75%, #e9eef0 75%);
+  background-position: 0 0, 0 10px, 10px -10px, -10px 0;
+  background-size: 20px 20px;
+}
+
+.conceptPreviewImage img {
+  display: block;
+  width: 100%;
+  height: auto;
+  margin: 0 auto;
+  border: 1px solid #cbd5e1;
+  background: #ffffff;
+  box-shadow: 0 8px 30px rgba(15, 23, 42, 0.18);
+}
+
 .editorBody {
   min-height: 0;
   display: grid;
@@ -493,6 +675,26 @@ input[type="range"] {
   line-height: 1.45;
 }
 
+.ancillaryToolStatus {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid rgba(80, 80, 80, 0.45);
+  border-radius: 6px;
+  background: rgba(120, 120, 120, 0.12);
+}
+
+.ancillaryToolStatus p {
+  display: grid;
+  gap: 3px;
+  margin: 0;
+}
+
+.ancillaryToolStatus span {
+  color: var(--muted);
+  font-size: 13px;
+}
+
 .setupPage {
   height: 100vh;
   display: grid;
@@ -686,6 +888,93 @@ input[type="range"] {
   background: rgba(15, 118, 110, 0.18);
 }
 
+.selectionOverlay.road {
+  border: 3px solid rgba(120, 120, 120, 0.9);
+  background: rgba(180, 180, 180, 0.45);
+}
+
+.selectionOverlay.ancillaryRectangle {
+  border: 3px dashed rgba(80, 80, 80, 1);
+  background: rgba(120, 120, 120, 0.25);
+}
+
+.ancillaryCursorLabel {
+  position: absolute;
+  z-index: 5;
+  max-width: 180px;
+  padding: 5px 8px;
+  border: 1px solid rgba(80, 80, 80, 0.6);
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 2px 6px rgba(15, 23, 42, 0.16);
+  color: #374151;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.2;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.roadSelectionOverlay {
+  position: absolute;
+  display: grid;
+  place-items: center;
+  min-height: 0;
+  padding: 5px;
+  border: 2px solid rgba(120, 120, 120, 0.9);
+  border-radius: 0;
+  background: rgba(180, 180, 180, 0.45);
+  color: #374151;
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1.2;
+  text-align: center;
+  overflow: hidden;
+}
+
+.roadSelectionOverlay:hover {
+  background: rgba(180, 180, 180, 0.58);
+}
+
+.roadSelectionOverlay.selected {
+  border-color: #f97316;
+  box-shadow: inset 0 0 0 1px #f97316;
+}
+
+.roadSelectionOverlay.temporary {
+  border-style: dashed;
+  border-width: 3px;
+  background: rgba(180, 180, 180, 0.3);
+  opacity: 0.82;
+  pointer-events: none;
+}
+
+.roadSelectionOverlay span {
+  pointer-events: none;
+}
+
+.roadConfirmationSummary {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 10px 16px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: #f4f7f8;
+}
+
+.roadConfirmationSummary span {
+  color: var(--muted);
+}
+
+.roadConfirmationSummary strong {
+  color: var(--ink);
+}
+
+.ancillaryConfirmationActions {
+  grid-template-columns: repeat(3, 1fr);
+}
+
 .selectionModeControls {
   display: grid;
   gap: 10px;
@@ -875,5 +1164,14 @@ input[type="range"] {
 
   .pdfNavigationControls span {
     display: none;
+  }
+
+  .conceptGallery {
+    width: 100vw;
+  }
+
+  .conceptPreviewDialog {
+    width: 100%;
+    max-height: 96vh;
   }
 }

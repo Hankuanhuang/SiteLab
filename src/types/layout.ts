@@ -47,11 +47,13 @@ export interface PdfBackgroundMeta {
   };
   siteShape?: SiteShape;
   contextZones?: ContextZone[];
+  roads?: SetupRoad[];
+  ancillaryBuildings?: AncillaryBuilding[];
 }
 
 export type PdfBackgroundView = "crop" | "full";
 
-export type ContextZoneType = "greenPark" | "residence";
+export type ContextZoneType = "greenPark";
 
 export interface ContextPoint {
   x: number;
@@ -62,6 +64,27 @@ export interface ContextZone {
   id: string;
   type: ContextZoneType;
   points: ContextPoint[];
+}
+
+export type RoadType = "primary" | "secondary" | "pedestrian";
+
+export interface SetupRoad {
+  id: string;
+  type: RoadType;
+  width: number;
+  x: number;
+  y: number;
+  rectangleWidth: number;
+  rectangleHeight: number;
+}
+
+export type AncillaryBuildingShape = "rectangle" | "polygon";
+
+export interface AncillaryBuilding {
+  id: string;
+  type: AncillaryBuildingShape;
+  points: ContextPoint[];
+  label: string;
 }
 
 export type BuildingType = "rectangle" | "square" | "bridge" | "toilet";
@@ -143,8 +166,21 @@ export interface Entrance {
   rotation: number;
 }
 
+export interface ConceptPlanExport {
+  id: string;
+  projectId: string;
+  name: string;
+  layoutName: string;
+  exportNumber: number;
+  exportedAt: string;
+  previewDataUrl: string;
+  thumbnailDataUrl: string;
+  favorite: boolean;
+}
+
 export interface LayoutFile {
   version: 1;
+  projectId?: string;
   projectName: string;
   savedAt: string;
   site: {
@@ -196,6 +232,8 @@ export interface LayoutFile {
   sidewalks: Sidewalk[];
   entrances: Entrance[];
   contextZones: ContextZone[];
+  roads?: SetupRoad[];
+  ancillaryBuildings?: AncillaryBuilding[];
 }
 
 export type LayoutExport = LayoutFile;

@@ -265,18 +265,31 @@ function BuildingProgramLabel({
   const contentWidth = Math.max(1, widthPx - padding * 2);
   const contentHeight = Math.max(1, heightPx - padding * 2);
   const sizeBasis = Math.min(widthPx, heightPx);
-  const nameFontSize = clamp(sizeBasis * 0.13, 10, 18);
-  const programFontSize = clamp(sizeBasis * 0.085, 8, 13);
-  const nameHeight = nameFontSize * 1.3;
-  const programLineHeight = programFontSize * 1.35;
-  const listGap = building.programs.length ? clamp(programFontSize * 0.45, 3, 6) : 0;
-  const availableProgramHeight = Math.max(0, contentHeight - nameHeight - listGap);
-  const visibleProgramCount = Math.min(
-    building.programs.length,
-    Math.floor(availableProgramHeight / programLineHeight),
+  const rowCount = Math.max(1, building.programs.length);
+  const heightLimitedProgramSize = contentHeight / (rowCount * 1.25 + 1.85);
+  const longestProgramLength = Math.max(
+    1,
+    ...building.programs.map(
+      (program, index) => `${index + 1}. ${program.name} (${formatArea(program.area)}m\u00b2)`.length,
+    ),
   );
-  const visiblePrograms = building.programs.slice(0, visibleProgramCount);
-  const stackHeight = nameHeight + listGap + visiblePrograms.length * programLineHeight;
+  const widthLimitedProgramSize = contentWidth / (longestProgramLength * 0.58);
+  const widthLimitedNameSize = contentWidth / (Math.max(1, building.label.length) * 0.62);
+  const programFontSize = Math.max(
+    3,
+    Math.min(
+      13,
+      sizeBasis * 0.085,
+      heightLimitedProgramSize,
+      widthLimitedProgramSize,
+      widthLimitedNameSize / 1.35,
+    ),
+  );
+  const nameFontSize = Math.min(18, Math.max(programFontSize * 1.35, sizeBasis * 0.13), widthLimitedNameSize);
+  const nameHeight = nameFontSize * 1.25;
+  const programLineHeight = programFontSize * 1.25;
+  const listGap = building.programs.length ? clamp(programFontSize * 0.45, 3, 6) : 0;
+  const stackHeight = nameHeight + listGap + building.programs.length * programLineHeight;
   const stackTop = padding + Math.max(0, (contentHeight - stackHeight) / 2);
 
   return (
@@ -304,7 +317,7 @@ function BuildingProgramLabel({
         wrap="none"
         ellipsis
       />
-      {visiblePrograms.map((program, index) => (
+      {building.programs.map((program, index) => (
         <Text
           key={`${program.name}-${index}`}
           x={padding}

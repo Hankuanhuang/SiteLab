@@ -2,6 +2,7 @@ import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import type Konva from "konva";
 import { Arrow, Circle, Group, Image, Layer, Line, Rect, Stage, Text } from "react-konva";
 import type {
+  AncillaryBuilding,
   Building,
   ContextZone,
   Entrance,
@@ -10,6 +11,7 @@ import type {
   Sidewalk,
   SiteDimensions,
   SiteLabel,
+  SetupRoad,
 } from "../types/layout";
 import type { Tree } from "../types/layout";
 import { BuildingShape } from "./BuildingShape";
@@ -51,11 +53,19 @@ interface SiteCanvasProps {
 
 const targetFitRatio = 1;
 const gridRowSize = 24;
-const topGridPaddingRows = 5;
+const topGridPaddingRows = 2.5;
+const defaultTreePlacementRadius = 2;
 const minimumStageSize = {
   width: 720,
   height: 520,
 };
+
+interface AnalysisBounds {
+  minX: number;
+  maxX: number;
+  minY: number;
+  maxY: number;
+}
 
 export function SiteCanvas({
   site,
@@ -145,12 +155,23 @@ export function SiteCanvas({
     x: boundary.width / site.width,
     y: boundary.height / site.length,
   };
+  const analysisBounds = getAnalysisBounds(crop, cropRelativeBoundary, site);
+  const analysisPixelBounds = {
+    minX: analysisBounds.minX * buildingScale.x,
+    maxX: analysisBounds.maxX * buildingScale.x,
+    minY: analysisBounds.minY * buildingScale.y,
+    maxY: analysisBounds.maxY * buildingScale.y,
+  };
   const renderSite: SiteDimensions = {
     ...site,
     pixelsPerMeter: Math.min(buildingScale.x, buildingScale.y),
   };
   const shouldShowBackground = showBackground && Boolean(backgroundImage);
-  const contextZones = backgroundMeta?.contextZones ?? [];
+  const contextZones = (backgroundMeta?.contextZones ?? []).filter(
+    (zone) => zone.type === "greenPark",
+  );
+  const roads = backgroundMeta?.roads ?? [];
+  const ancillaryBuildings = backgroundMeta?.ancillaryBuildings ?? [];
   const boundaryDimensionGuides = getBoundaryDimensionGuides(
     buildings,
     selectedBuildingId,
@@ -198,9 +219,29 @@ export function SiteCanvas({
       if (!pointer) return;
       const localX = pointer.x - boundary.x;
       const localY = pointer.y - boundary.y;
-      if (localX < 0 || localY < 0 || localX > boundary.width || localY > boundary.height) return;
+      if (
+        localX < analysisPixelBounds.minX ||
+        localY < analysisPixelBounds.minY ||
+        localX > analysisPixelBounds.maxX ||
+        localY > analysisPixelBounds.maxY
+      ) {
+        return;
+      }
 
-      onPlaceTree(localX / buildingScale.x, localY / buildingScale.y);
+      onPlaceTree(
+        clampAnalysisCoordinate(
+          localX / buildingScale.x,
+          analysisBounds.minX,
+          analysisBounds.maxX,
+          defaultTreePlacementRadius,
+        ),
+        clampAnalysisCoordinate(
+          localY / buildingScale.y,
+          analysisBounds.minY,
+          analysisBounds.maxY,
+          defaultTreePlacementRadius,
+        ),
+      );
       return;
     }
 
@@ -245,6 +286,25 @@ export function SiteCanvas({
             <ContextZoneShape
               key={zone.id}
               zone={zone}
+              crop={crop}
+              backgroundView={backgroundView}
+              pageScale={pageScale}
+            />
+          ))}
+          {roads.map((road) => (
+            <SetupRoadShape
+              key={road.id}
+              road={road}
+              crop={crop}
+              backgroundView={backgroundView}
+              pageScale={pageScale}
+            />
+          ))}
+          {ancillaryBuildings.map((building, index) => (
+            <AncillaryBuildingShape
+              key={building.id}
+              building={building}
+              label={`Ancillary Building ${index + 1}`}
               crop={crop}
               backgroundView={backgroundView}
               pageScale={pageScale}
@@ -310,7 +370,7 @@ export function SiteCanvas({
               key={label.id}
               label={label}
               scale={buildingScale}
-              site={site}
+              analysisBounds={analysisBounds}
               isSelected={label.id === selectedSiteLabelId}
               onSelect={() => onSelectSiteLabel(label.id)}
               onChange={(nextLabel) => onChangeSiteLabel(nextLabel, false)}
@@ -323,7 +383,7 @@ export function SiteCanvas({
               key={tree.id}
               tree={tree}
               scale={buildingScale}
-              site={site}
+              analysisBounds={analysisBounds}
               isSelected={tree.id === selectedTreeId}
               onSelect={() => onSelectTree(tree.id)}
               onChange={(nextTree) => onChangeTree(nextTree, false)}
@@ -335,8 +395,8 @@ export function SiteCanvas({
             <EntranceShape
               key={entrance.id}
               entrance={entrance}
-              site={site}
               scale={buildingScale}
+              analysisBounds={analysisBounds}
               isSelected={entrance.id === selectedEntranceId}
               onSelect={() => onSelectEntrance(entrance.id)}
               onChange={(nextEntrance) => onChangeEntrance(nextEntrance, false)}
@@ -358,10 +418,112 @@ export function SiteCanvas({
   );
 }
 
+function AncillaryBuildingShape({
+  building,
+  label,
+  crop,
+  backgroundView,
+  pageScale,
+}: {
+  building: AncillaryBuilding;
+  label: string;
+  crop: { x: number; y: number };
+  backgroundView: PdfBackgroundView;
+  pageScale: number;
+}) {
+  const offsetX = backgroundView === "full" ? crop.x : 0;
+  const offsetY = backgroundView === "full" ? crop.y : 0;
+  const points = building.points.flatMap((point) => [
+    (point.x + offsetX) * pageScale,
+    (point.y + offsetY) * pageScale,
+  ]);
+  const center = building.points.reduce(
+    (total, point) => ({ x: total.x + point.x, y: total.y + point.y }),
+    { x: 0, y: 0 },
+  );
+  const centerX = ((center.x / building.points.length) + offsetX) * pageScale;
+  const centerY = ((center.y / building.points.length) + offsetY) * pageScale;
+
+  return (
+    <Group listening={false}>
+      <Line
+        points={points}
+        closed
+        fill="rgba(120, 120, 120, 0.35)"
+        stroke="rgba(80, 80, 80, 1)"
+        strokeWidth={2}
+      />
+      <Text
+        x={centerX - 80}
+        y={centerY - 9}
+        width={160}
+        text={label}
+        fill="#374151"
+        fontSize={13}
+        fontStyle="bold"
+        align="center"
+      />
+    </Group>
+  );
+}
+
+function SetupRoadShape({
+  road,
+  crop,
+  backgroundView,
+  pageScale,
+}: {
+  road: SetupRoad;
+  crop: { x: number; y: number };
+  backgroundView: PdfBackgroundView;
+  pageScale: number;
+}) {
+  const offsetX = backgroundView === "full" ? crop.x : 0;
+  const offsetY = backgroundView === "full" ? crop.y : 0;
+  const x = (road.x + offsetX) * pageScale;
+  const y = (road.y + offsetY) * pageScale;
+  const width = road.rectangleWidth * pageScale;
+  const height = road.rectangleHeight * pageScale;
+
+  return (
+    <Group x={x} y={y} listening={false}>
+      <Rect
+        width={width}
+        height={height}
+        fill="rgba(180, 180, 180, 0.45)"
+        stroke="rgba(120, 120, 120, 0.9)"
+        strokeWidth={2}
+      />
+      <Text
+        width={width}
+        height={height}
+        text={`${getSetupRoadLabel(road.type)} (${formatSetupRoadWidth(road.width)}m)`}
+        fill="#374151"
+        fontSize={Math.max(9, Math.min(16, Math.min(width, height) * 0.18))}
+        fontStyle="bold"
+        align="center"
+        verticalAlign="middle"
+        wrap="none"
+        ellipsis
+      />
+    </Group>
+  );
+}
+
+function getSetupRoadLabel(type: SetupRoad["type"]) {
+  if (type === "primary") return "Primary Road";
+  if (type === "secondary") return "Secondary Road";
+  return "Pedestrian Pathway";
+}
+
+function formatSetupRoadWidth(width: number) {
+  return Number.isInteger(width) ? String(width) : width.toFixed(1);
+}
+
 function EntranceShape({
   entrance,
-  site,
   scale,
+  analysisBounds,
   isSelected,
   onSelect,
   onChange,
@@ -369,8 +531,8 @@ function EntranceShape({
   onEditEnd,
 }: {
   entrance: Entrance;
-  site: SiteDimensions;
   scale: { x: number; y: number };
+  analysisBounds: AnalysisBounds;
   isSelected: boolean;
   onSelect: () => void;
   onChange: (entrance: Entrance) => void;
@@ -413,10 +575,8 @@ function EntranceShape({
       onTap={onSelect}
       onDragStart={onEditStart}
       onDragMove={(event) => {
-        const nextX = Math.max(0, Math.min(site.width, event.target.x() / scale.x));
-        const nextY = Math.max(0, Math.min(site.length, event.target.y() / scale.y));
-        event.target.position({ x: nextX * scale.x, y: nextY * scale.y });
-        onChange({ ...entrance, x: nextX, y: nextY });
+        const next = keepAnalysisNodeInside(event.target, analysisBounds, scale);
+        onChange({ ...entrance, x: next.x, y: next.y });
       }}
       onDragEnd={onEditEnd}
     >
@@ -501,14 +661,12 @@ function ContextZoneShape({
     (point.x + (backgroundView === "full" ? crop.x : 0)) * pageScale,
     (point.y + (backgroundView === "full" ? crop.y : 0)) * pageScale,
   ]);
-  const isPark = zone.type === "greenPark";
-
   return (
     <Line
       points={points}
       closed
-      fill={isPark ? "rgba(134, 239, 172, 0.34)" : "rgba(209, 213, 219, 0.4)"}
-      stroke={isPark ? "#16a34a" : "#6b7280"}
+      fill="rgba(134, 239, 172, 0.34)"
+      stroke="#16a34a"
       strokeWidth={2}
       listening={false}
     />
@@ -607,7 +765,7 @@ function getSidewalkGeometry(
 function TreeShape({
   tree,
   scale,
-  site,
+  analysisBounds,
   isSelected,
   onSelect,
   onChange,
@@ -616,7 +774,7 @@ function TreeShape({
 }: {
   tree: Tree;
   scale: { x: number; y: number };
-  site: SiteDimensions;
+  analysisBounds: AnalysisBounds;
   isSelected: boolean;
   onSelect: () => void;
   onChange: (tree: Tree) => void;
@@ -634,10 +792,8 @@ function TreeShape({
       onTap={onSelect}
       onDragStart={onEditStart}
       onDragMove={(event) => {
-        const x = Math.max(tree.radius, Math.min(site.width - tree.radius, event.target.x() / scale.x));
-        const y = Math.max(tree.radius, Math.min(site.length - tree.radius, event.target.y() / scale.y));
-        event.target.position({ x: x * scale.x, y: y * scale.y });
-        onChange({ ...tree, x, y });
+        const next = keepAnalysisNodeInside(event.target, analysisBounds, scale);
+        onChange({ ...tree, x: next.x, y: next.y });
       }}
       onDragEnd={onEditEnd}
     >
@@ -665,7 +821,7 @@ function TreeShape({
 function SiteLabelShape({
   label,
   scale,
-  site,
+  analysisBounds,
   isSelected,
   onSelect,
   onChange,
@@ -674,7 +830,7 @@ function SiteLabelShape({
 }: {
   label: SiteLabel;
   scale: { x: number; y: number };
-  site: SiteDimensions;
+  analysisBounds: AnalysisBounds;
   isSelected: boolean;
   onSelect: () => void;
   onChange: (label: SiteLabel) => void;
@@ -697,15 +853,67 @@ function SiteLabelShape({
       onTap={onSelect}
       onDragStart={onEditStart}
       onDragMove={(event) => {
-        const node = event.target;
-        const x = Math.max(0, Math.min(site.width, node.x() / scale.x));
-        const y = Math.max(0, Math.min(site.length, node.y() / scale.y));
-        node.position({ x: x * scale.x, y: y * scale.y });
-        onChange({ ...label, x, y });
+        const next = keepAnalysisNodeInside(event.target, analysisBounds, scale);
+        onChange({ ...label, x: next.x, y: next.y });
       }}
       onDragEnd={onEditEnd}
     />
   );
+}
+
+function getAnalysisBounds(
+  crop: { width: number; height: number },
+  boundary: { x: number; y: number; width: number; height: number },
+  site: SiteDimensions,
+): AnalysisBounds {
+  if (boundary.width <= 0 || boundary.height <= 0) {
+    return { minX: 0, maxX: site.width, minY: 0, maxY: site.length };
+  }
+
+  return {
+    minX: -(boundary.x / boundary.width) * site.width,
+    maxX: ((crop.width - boundary.x) / boundary.width) * site.width,
+    minY: -(boundary.y / boundary.height) * site.length,
+    maxY: ((crop.height - boundary.y) / boundary.height) * site.length,
+  };
+}
+
+function keepAnalysisNodeInside(
+  node: Konva.Node,
+  bounds: AnalysisBounds,
+  scale: { x: number; y: number },
+) {
+  const pixelBounds = {
+    minX: bounds.minX * scale.x,
+    maxX: bounds.maxX * scale.x,
+    minY: bounds.minY * scale.y,
+    maxY: bounds.maxY * scale.y,
+  };
+  const box = node.getClientRect({ relativeTo: node.getLayer() ?? undefined });
+  let correctionX = 0;
+  let correctionY = 0;
+
+  if (box.x < pixelBounds.minX) correctionX = pixelBounds.minX - box.x;
+  if (box.y < pixelBounds.minY) correctionY = pixelBounds.minY - box.y;
+  if (box.x + box.width > pixelBounds.maxX) correctionX = pixelBounds.maxX - (box.x + box.width);
+  if (box.y + box.height > pixelBounds.maxY) correctionY = pixelBounds.maxY - (box.y + box.height);
+
+  if (correctionX || correctionY) {
+    node.position({
+      x: node.x() + correctionX,
+      y: node.y() + correctionY,
+    });
+  }
+
+  return {
+    x: node.x() / scale.x,
+    y: node.y() / scale.y,
+  };
+}
+
+function clampAnalysisCoordinate(value: number, min: number, max: number, padding: number) {
+  const effectivePadding = Math.min(padding, (max - min) / 2);
+  return Math.max(min + effectivePadding, Math.min(max - effectivePadding, value));
 }
 
 function BoundaryDimensionGuides({

@@ -1,13 +1,25 @@
 import { useEffect, useRef, useState } from "react";
+import { ConceptPlanGallery } from "../components/ConceptPlanGallery";
 import { PropertyPanel } from "../components/PropertyPanel";
 import { SiteCanvas } from "../components/SiteCanvas";
 import { Toolbar } from "../components/Toolbar";
 import { createBridge, createRectangle, createSquare, createToilet } from "../models/Building";
 import { defaultSiteData, siteDataToDimensions } from "../models/Site";
 import { exportConceptSitePlan } from "../services/conceptSitePlan";
+import {
+  addConceptPlanExport,
+  deleteConceptPlanExport,
+  getLegacyProjectId,
+  getNextExportNumber,
+  readActiveProject,
+  readConceptPlanExports,
+  saveActiveProject,
+  updateConceptPlanExport,
+} from "../services/conceptPlanGalleryStorage";
 import { buildLayoutJson, downloadLayoutJson, parseLayoutJson } from "../services/layoutStorage";
 import type {
   Building,
+  ConceptPlanExport,
   Entrance,
   EntranceLabel,
   PdfBackgroundMeta,
@@ -41,6 +53,7 @@ const defaultTreeRadius = 2;
 
 export function SiteEditor() {
   const initialSiteData = readSiteData();
+  const initialProject = useRef(readActiveProject()).current;
   const [site, setSite] = useState<SiteDimensions>(() => siteDataToDimensions(initialSiteData));
   const [buildings, setBuildings] = useState<Building[]>([]);
   const [siteLabels, setSiteLabels] = useState<SiteLabel[]>([]);
@@ -54,9 +67,15 @@ export function SiteEditor() {
   const [selectedEntranceId, setSelectedEntranceId] = useState<string>();
   const [isTreeToolActive, setIsTreeToolActive] = useState(false);
   const [entrancePlacementLabel, setEntrancePlacementLabel] = useState<EntranceLabel>();
-  const [projectName, setProjectName] = useState("Untitled Layout");
-  const [projectNameDraft, setProjectNameDraft] = useState("Untitled Layout");
+  const [projectId, setProjectId] = useState(initialProject.id);
+  const [projectName, setProjectName] = useState(initialProject.name);
+  const [projectNameDraft, setProjectNameDraft] = useState(initialProject.name);
   const [projectDialogMode, setProjectDialogMode] = useState<"save" | "rename">();
+  const [conceptPlanExports, setConceptPlanExports] = useState<ConceptPlanExport[]>(() =>
+    readConceptPlanExports(initialProject.id),
+  );
+  const [isConceptGalleryOpen, setIsConceptGalleryOpen] = useState(false);
+  const [previewedConceptPlan, setPreviewedConceptPlan] = useState<ConceptPlanExport>();
   const [backgroundImageSrc, setBackgroundImageSrc] = useState<string | undefined>(() =>
     sessionStorage.getItem("siteBackgroundImage") ?? undefined,
   );
@@ -77,11 +96,30 @@ export function SiteEditor() {
   const [clipboardItem, setClipboardItem] = useState<ClipboardItem>();
   const editStartSnapshotRef = useRef<EditorSnapshot | undefined>(undefined);
 
+  useEffect(() => {
+    saveActiveProject(projectId, projectName);
+  }, [projectId, projectName]);
+
+  useEffect(() => {
+    if (!backgroundMeta) return;
+    try {
+      sessionStorage.setItem("siteBackgroundMeta", JSON.stringify(backgroundMeta));
+    } catch {
+      setLayoutError("The site setup metadata could not be persisted.");
+    }
+  }, [backgroundMeta]);
+
+  useEffect(() => {
+    setConceptPlanExports(readConceptPlanExports(projectId));
+    setPreviewedConceptPlan(undefined);
+  }, [projectId]);
+
   const selectedBuilding = buildings.find((building) => building.id === selectedBuildingId);
   const selectedSiteLabel = siteLabels.find((label) => label.id === selectedSiteLabelId);
   const selectedTree = trees.find((tree) => tree.id === selectedTreeId);
   const selectedSidewalk = sidewalks.find((sidewalk) => sidewalk.id === selectedSidewalkId);
   const selectedEntrance = entrances.find((entrance) => entrance.id === selectedEntranceId);
+  const analysisBounds = getEditorAnalysisBounds(backgroundMeta, site);
   const createSnapshot = (): EditorSnapshot => ({
     buildings: cloneBuildings(buildings),
     siteLabels: cloneSiteLabels(siteLabels),
@@ -432,8 +470,8 @@ export function SiteEditor() {
     const tree: Tree = {
       id: crypto.randomUUID(),
       type: "tree",
-      x: clampTreeCoordinate(x, site.width, defaultTreeRadius),
-      y: clampTreeCoordinate(y, site.length, defaultTreeRadius),
+      x: clampAnalysisCoordinate(x, analysisBounds.minX, analysisBounds.maxX, defaultTreeRadius),
+      y: clampAnalysisCoordinate(y, analysisBounds.minY, analysisBounds.maxY, defaultTreeRadius),
       radius: defaultTreeRadius,
     };
 
@@ -553,6 +591,7 @@ export function SiteEditor() {
       setEntrances(parsed.entrances);
       setProjectName(parsed.projectName);
       setProjectNameDraft(parsed.projectName);
+      setProjectId(parsed.projectId ?? getLegacyProjectId(parsed.projectName));
       setBackgroundMeta((current) => {
         const base = current ?? createDefaultBackgroundMeta(parsed.site);
         return {
@@ -571,6 +610,8 @@ export function SiteEditor() {
                 }),
           },
           contextZones: parsed.contextZones,
+          roads: parsed.roads,
+          ancillaryBuildings: parsed.ancillaryBuildings,
         };
       });
       setSelectedBuildingId(undefined);
@@ -609,15 +650,80 @@ export function SiteEditor() {
           trees,
           sidewalks,
           backgroundMeta?.contextZones,
+          backgroundMeta?.roads,
+          backgroundMeta?.ancillaryBuildings,
           entrances,
           nextProjectName,
           new Date().toISOString(),
           backgroundMeta?.siteShape ?? "rectangle",
           getLayoutSiteVertices(backgroundMeta, site),
           backgroundMeta?.siteBoundary.edgeLengths ?? [],
+          projectId,
         ),
       );
     }
+  };
+
+  const exportConceptPlan = async () => {
+    try {
+      const rendered = await exportConceptSitePlan(
+        site,
+        buildings,
+        siteLabels,
+        trees,
+        sidewalks,
+        entrances,
+        projectName,
+        backgroundMeta?.siteShape ?? "rectangle",
+        getLayoutSiteVertices(backgroundMeta, site),
+        backgroundMeta?.siteBoundary.edgeLengths ?? [],
+        showDistanceLines,
+        selectedBuildingId,
+      );
+      if (!rendered) {
+        setLayoutError("Unable to render the concept site plan.");
+        return;
+      }
+
+      const exportNumber = getNextExportNumber(projectId);
+      const item: ConceptPlanExport = {
+        id: crypto.randomUUID(),
+        projectId,
+        name: `${projectName} - Export ${exportNumber}`,
+        layoutName: projectName,
+        exportNumber,
+        exportedAt: rendered.exportedAt,
+        previewDataUrl: rendered.previewDataUrl,
+        thumbnailDataUrl: rendered.thumbnailDataUrl,
+        favorite: false,
+      };
+      addConceptPlanExport(item);
+      setConceptPlanExports(readConceptPlanExports(projectId));
+      setLayoutError("");
+    } catch (error) {
+      setLayoutError(
+        error instanceof DOMException && error.name === "QuotaExceededError"
+          ? "The concept gallery is full. Delete older exports and try again."
+          : "The PNG downloaded, but the gallery copy could not be saved.",
+      );
+    }
+  };
+
+  const renameConceptPlan = (item: ConceptPlanExport) => {
+    const name = window.prompt("Export Name", item.name);
+    if (name === null || !name.trim()) return;
+    updateConceptPlanExport(projectId, item.id, name);
+    setConceptPlanExports(readConceptPlanExports(projectId));
+    setPreviewedConceptPlan((current) =>
+      current?.id === item.id ? { ...current, name: name.trim() } : current,
+    );
+  };
+
+  const removeConceptPlan = (item: ConceptPlanExport) => {
+    if (!window.confirm(`Delete "${item.name}" from the Concept Plan Gallery?`)) return;
+    deleteConceptPlanExport(projectId, item.id);
+    setConceptPlanExports(readConceptPlanExports(projectId));
+    if (previewedConceptPlan?.id === item.id) setPreviewedConceptPlan(undefined);
   };
 
   return (
@@ -658,20 +764,9 @@ export function SiteEditor() {
             onToggleSidebar={() => setIsSidebarCollapsed((current) => !current)}
             isSidebarCollapsed={isSidebarCollapsed}
             onSaveLayout={() => openProjectDialog("save")}
-            onExportConceptSitePlan={() =>
-              exportConceptSitePlan(
-                site,
-                buildings,
-                siteLabels,
-                trees,
-                sidewalks,
-                entrances,
-                projectName,
-                backgroundMeta?.siteShape ?? "rectangle",
-                getLayoutSiteVertices(backgroundMeta, site),
-                backgroundMeta?.siteBoundary.edgeLengths ?? [],
-              )
-            }
+            onExportConceptSitePlan={exportConceptPlan}
+            onOpenConceptPlanGallery={() => setIsConceptGalleryOpen(true)}
+            conceptPlanExportCount={conceptPlanExports.length}
             onLoadLayout={loadLayout}
           />
         </header>
@@ -799,12 +894,22 @@ export function SiteEditor() {
             onDeleteBuilding={deleteSelectedBuilding}
             onSiteLabelChange={(label) => {
               recordCurrent();
-              setSiteLabels((current) => current.map((item) => (item.id === label.id ? label : item)));
+              const nextLabel = {
+                ...label,
+                x: clamp(label.x, analysisBounds.minX, analysisBounds.maxX),
+                y: clamp(label.y, analysisBounds.minY, analysisBounds.maxY),
+              };
+              setSiteLabels((current) => current.map((item) => (item.id === label.id ? nextLabel : item)));
             }}
             onDeleteSiteLabel={deleteSelectedSiteLabel}
             onTreeChange={(tree) => {
               recordCurrent();
-              setTrees((current) => current.map((item) => (item.id === tree.id ? tree : item)));
+              const nextTree = {
+                ...tree,
+                x: clampAnalysisCoordinate(tree.x, analysisBounds.minX, analysisBounds.maxX, tree.radius),
+                y: clampAnalysisCoordinate(tree.y, analysisBounds.minY, analysisBounds.maxY, tree.radius),
+              };
+              setTrees((current) => current.map((item) => (item.id === tree.id ? nextTree : item)));
             }}
             onDeleteTree={deleteSelectedTree}
             onSidewalkChange={(sidewalk) => {
@@ -814,12 +919,26 @@ export function SiteEditor() {
             onDeleteSidewalk={deleteSelectedSidewalk}
             onEntranceChange={(entrance) => {
               recordCurrent();
-              setEntrances((current) => current.map((item) => (item.id === entrance.id ? entrance : item)));
+              const nextEntrance = {
+                ...entrance,
+                x: clamp(entrance.x, analysisBounds.minX, analysisBounds.maxX),
+                y: clamp(entrance.y, analysisBounds.minY, analysisBounds.maxY),
+              };
+              setEntrances((current) => current.map((item) => (item.id === entrance.id ? nextEntrance : item)));
             }}
             onDeleteEntrance={deleteSelectedEntrance}
           />
         )}
       </section>
+      <ConceptPlanGallery
+        exports={conceptPlanExports}
+        isOpen={isConceptGalleryOpen}
+        preview={previewedConceptPlan}
+        onClose={() => setIsConceptGalleryOpen(false)}
+        onPreview={setPreviewedConceptPlan}
+        onRename={renameConceptPlan}
+        onDelete={removeConceptPlan}
+      />
       {projectDialogMode ? (
         <div className="modalBackdrop" role="presentation" onMouseDown={() => setProjectDialogMode(undefined)}>
           <form
@@ -960,9 +1079,13 @@ function snapCardinalAngle(value: number) {
   return Math.round(normalizeAngle(value) / 90) * 90 % 360;
 }
 
-function clampTreeCoordinate(value: number, limit: number, radius: number) {
-  const effectiveRadius = Math.min(radius, limit / 2);
-  return Math.max(effectiveRadius, Math.min(limit - effectiveRadius, value));
+function clampAnalysisCoordinate(value: number, min: number, max: number, padding: number) {
+  const effectivePadding = Math.min(padding, (max - min) / 2);
+  return clamp(value, min + effectivePadding, max - effectivePadding);
+}
+
+function clamp(value: number, min: number, max: number) {
+  return Math.max(min, Math.min(max, value));
 }
 
 function snapshotsEqual(left: EditorSnapshot, right: EditorSnapshot) {
@@ -986,6 +1109,23 @@ function createDefaultBackgroundMeta(site: SiteDimensions): PdfBackgroundMeta {
     crop: { x: 0, y: 0, width: site.width, height: site.length },
     siteBoundary: { x: 0, y: 0, width: site.width, height: site.length },
     contextZones: [],
+    roads: [],
+    ancillaryBuildings: [],
+  };
+}
+
+function getEditorAnalysisBounds(backgroundMeta: PdfBackgroundMeta | undefined, site: SiteDimensions) {
+  const crop = backgroundMeta?.crop;
+  const boundary = backgroundMeta?.siteBoundary;
+  if (!crop || !boundary || boundary.width <= 0 || boundary.height <= 0) {
+    return { minX: 0, maxX: site.width, minY: 0, maxY: site.length };
+  }
+
+  return {
+    minX: -(boundary.x / boundary.width) * site.width,
+    maxX: ((crop.width - boundary.x) / boundary.width) * site.width,
+    minY: -(boundary.y / boundary.height) * site.length,
+    maxY: ((crop.height - boundary.y) / boundary.height) * site.length,
   };
 }
 

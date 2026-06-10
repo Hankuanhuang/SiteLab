@@ -4,12 +4,16 @@ import * as pdfjs from "pdfjs-dist";
 import pdfWorker from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 import { defaultSiteData } from "../models/Site";
 import type {
+  AncillaryBuilding,
+  AncillaryBuildingShape,
   ContextPoint,
   ContextZone,
   ContextZoneType,
   PdfBackgroundMeta,
+  RoadType,
   SiteData,
   SiteShape,
+  SetupRoad,
 } from "../types/layout";
 
 pdfjs.GlobalWorkerOptions.workerSrc = pdfWorker;
@@ -28,7 +32,14 @@ interface PanelPosition {
   y: number;
 }
 
-type SelectionMode = "crop" | "boundaryRectangle" | "boundaryPolygon" | ContextZoneType;
+type SelectionMode =
+  | "crop"
+  | "boundaryRectangle"
+  | "boundaryPolygon"
+  | "road"
+  | "ancillaryRectangle"
+  | "ancillaryPolygon"
+  | ContextZoneType;
 
 export function PdfSiteSetup() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -54,6 +65,22 @@ export function PdfSiteSetup() {
   const [draftSelection, setDraftSelection] = useState<SelectionRect>();
   const [dragStart, setDragStart] = useState<{ x: number; y: number }>();
   const [contextZones, setContextZones] = useState<ContextZone[]>([]);
+  const [roads, setRoads] = useState<SetupRoad[]>([]);
+  const [selectedRoadId, setSelectedRoadId] = useState<string>();
+  const [showRoadTypeDialog, setShowRoadTypeDialog] = useState(false);
+  const [showRoadWidthDialog, setShowRoadWidthDialog] = useState(false);
+  const [roadTypeDraft, setRoadTypeDraft] = useState<RoadType>("primary");
+  const [roadWidthDraft, setRoadWidthDraft] = useState("12");
+  const [activeRoadType, setActiveRoadType] = useState<RoadType>();
+  const [activeRoadWidth, setActiveRoadWidth] = useState<number>();
+  const [pendingRoad, setPendingRoad] = useState<SetupRoad>();
+  const [roadError, setRoadError] = useState("");
+  const [ancillaryBuildings, setAncillaryBuildings] = useState<AncillaryBuilding[]>([]);
+  const [showAncillaryShapeDialog, setShowAncillaryShapeDialog] = useState(false);
+  const [ancillaryShapeDraft, setAncillaryShapeDraft] = useState<AncillaryBuildingShape>("rectangle");
+  const [draftAncillaryPolygon, setDraftAncillaryPolygon] = useState<ContextPoint[]>([]);
+  const [ancillaryPreviewPoint, setAncillaryPreviewPoint] = useState<ContextPoint>();
+  const [pendingAncillaryBuilding, setPendingAncillaryBuilding] = useState<AncillaryBuilding>();
   const [draftPolygon, setDraftPolygon] = useState<ContextPoint[]>([]);
   const [selectedZoneId, setSelectedZoneId] = useState<string>();
   const [draggedVertex, setDraggedVertex] = useState<{ zoneId: string; pointIndex: number }>();
@@ -72,8 +99,7 @@ export function PdfSiteSetup() {
   const spacePressedRef = useRef(false);
 
   const canContinue = Boolean(
-    pdfDocument &&
-      renderSize.width &&
+    renderSize.width &&
       renderSize.height &&
       cropSelection &&
       (siteShape === "rectangle"
@@ -100,6 +126,77 @@ export function PdfSiteSetup() {
     });
   }, []);
 
+  useEffect(() => {
+    if (pdfDocument || renderSize.width) return;
+    const imageSource = sessionStorage.getItem("siteFullPageImage");
+    const rawMeta = sessionStorage.getItem("siteBackgroundMeta");
+    const rawSiteData = sessionStorage.getItem("siteData");
+    if (!imageSource || !rawMeta) return;
+
+    try {
+      const meta = JSON.parse(rawMeta) as PdfBackgroundMeta;
+      const savedSite = rawSiteData ? (JSON.parse(rawSiteData) as SiteData) : undefined;
+      const image = new Image();
+      image.onload = () => {
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+        canvas.width = image.naturalWidth;
+        canvas.height = image.naturalHeight;
+        canvas.getContext("2d")?.drawImage(image, 0, 0);
+        setRenderSize({ width: canvas.width, height: canvas.height });
+        setPdfName("Saved setup image");
+        setPageNumber(savedSite?.site_page_index ?? 1);
+        setCropSelection(meta.crop);
+        setSiteShape(meta.siteShape ?? savedSite?.site_shape ?? "rectangle");
+        setSiteLength(savedSite?.scale.length_m ?? defaultSiteData.scale.length_m);
+        setSiteWidth(savedSite?.scale.width_m ?? defaultSiteData.scale.width_m);
+
+        const offset = { x: meta.crop.x, y: meta.crop.y };
+        if ((meta.siteShape ?? savedSite?.site_shape) === "polygon" && meta.siteBoundary.polygon?.length) {
+          setPolygonBoundary(meta.siteBoundary.polygon.map((point) => ({
+            x: point.x + offset.x,
+            y: point.y + offset.y,
+          })));
+          setEdgeLengthDrafts((meta.siteBoundary.edgeLengths ?? []).map(String));
+        } else {
+          setBoundarySelection({
+            x: meta.siteBoundary.x + offset.x,
+            y: meta.siteBoundary.y + offset.y,
+            width: meta.siteBoundary.width,
+            height: meta.siteBoundary.height,
+          });
+        }
+        setContextZones(
+          (meta.contextZones ?? [])
+            .filter((zone) => zone.type === "greenPark")
+            .map((zone) => ({
+              ...zone,
+              points: zone.points.map((point) => ({
+                x: point.x + offset.x,
+                y: point.y + offset.y,
+              })),
+            })),
+        );
+        setRoads((meta.roads ?? []).map((road) => ({
+          ...road,
+          x: road.x + offset.x,
+          y: road.y + offset.y,
+        })));
+        setAncillaryBuildings((meta.ancillaryBuildings ?? []).map((building) => ({
+          ...building,
+          points: building.points.map((point) => ({
+            x: point.x + offset.x,
+            y: point.y + offset.y,
+          })),
+        })));
+        requestAnimationFrame(() => fitBounds(meta.crop));
+      };
+      image.src = imageSource;
+    } catch {
+      setError("The saved setup data could not be restored.");
+    }
+  }, [fitBounds, pdfDocument, renderSize.width]);
+
   const fitSite = useCallback(() => {
     const polygonBounds = polygonBoundary.length >= 3 ? getPointsBounds(polygonBoundary) : undefined;
     const target = siteShape === "polygon" && polygonBounds ? polygonBounds : cropSelection;
@@ -121,6 +218,12 @@ export function PdfSiteSetup() {
     setSelectionMode("crop");
     setSiteShape("rectangle");
     setContextZones([]);
+    setRoads([]);
+    setSelectedRoadId(undefined);
+    setPendingRoad(undefined);
+    setAncillaryBuildings([]);
+    setDraftAncillaryPolygon([]);
+    setPendingAncillaryBuilding(undefined);
     setDraftPolygon([]);
     setSelectedZoneId(undefined);
 
@@ -177,6 +280,12 @@ export function PdfSiteSetup() {
         setSelectionMode("crop");
         setSiteShape("rectangle");
         setContextZones([]);
+        setRoads([]);
+        setSelectedRoadId(undefined);
+        setPendingRoad(undefined);
+        setAncillaryBuildings([]);
+        setDraftAncillaryPolygon([]);
+        setPendingAncillaryBuilding(undefined);
         setDraftPolygon([]);
         setSelectedZoneId(undefined);
         requestAnimationFrame(() =>
@@ -194,7 +303,26 @@ export function PdfSiteSetup() {
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null;
-      if (showShapeDialog || showDimensionsDialog) return;
+      if (
+        showShapeDialog ||
+        showDimensionsDialog ||
+        showRoadTypeDialog ||
+        showRoadWidthDialog ||
+        pendingRoad ||
+        showAncillaryShapeDialog ||
+        pendingAncillaryBuilding
+      ) {
+        return;
+      }
+      if (
+        selectionMode === "ancillaryPolygon" &&
+        (event.ctrlKey || event.metaKey) &&
+        event.key.toLowerCase() === "z"
+      ) {
+        event.preventDefault();
+        setDraftAncillaryPolygon((current) => current.slice(0, -1));
+        return;
+      }
       if (event.code === "Space" && !isFormControl(target)) {
         spacePressedRef.current = true;
         event.preventDefault();
@@ -210,6 +338,12 @@ export function PdfSiteSetup() {
       if (event.key.toLowerCase() === "f") {
         event.preventDefault();
         fitSite();
+      } else if (
+        selectionMode === "ancillaryPolygon" &&
+        event.key === "Escape"
+      ) {
+        event.preventDefault();
+        finishAncillaryPolygon();
       } else if (
         selectionMode === "boundaryPolygon" &&
         !polygonBoundary.length &&
@@ -247,7 +381,13 @@ export function PdfSiteSetup() {
     polygonBoundary.length,
     selectionMode,
     showDimensionsDialog,
+    showRoadTypeDialog,
+    showRoadWidthDialog,
     showShapeDialog,
+    pendingRoad,
+    showAncillaryShapeDialog,
+    pendingAncillaryBuilding,
+    draftAncillaryPolygon,
   ]);
 
   const rotatePage = (degrees: number) => {
@@ -261,6 +401,12 @@ export function PdfSiteSetup() {
     setSelectionMode("crop");
     setSiteShape("rectangle");
     setContextZones([]);
+    setRoads([]);
+    setSelectedRoadId(undefined);
+    setPendingRoad(undefined);
+    setAncillaryBuildings([]);
+    setDraftAncillaryPolygon([]);
+    setPendingAncillaryBuilding(undefined);
     setDraftPolygon([]);
     setSelectedZoneId(undefined);
     setRotation((current) => normalizeRotation(current + degrees));
@@ -296,13 +442,24 @@ export function PdfSiteSetup() {
     if (event.button === 1 || spacePressedRef.current) return;
     if (event.button !== 0) return;
     const point = getPointer(event);
+    if (
+      selectionMode === "ancillaryRectangle" ||
+      selectionMode === "ancillaryPolygon"
+    ) {
+      setAncillaryPreviewPoint(point);
+    }
     if (selectionMode === "boundaryPolygon") {
       if (event.detail >= 2 || polygonBoundary.length) return;
       setDraftBoundaryPolygon((current) => [...current, point]);
       setPolygonError("");
       return;
     }
-    if (selectionMode === "greenPark" || selectionMode === "residence") {
+    if (selectionMode === "ancillaryPolygon") {
+      if (event.detail >= 2 || pendingAncillaryBuilding) return;
+      setDraftAncillaryPolygon((current) => [...current, point]);
+      return;
+    }
+    if (selectionMode === "greenPark") {
       setSelectedZoneId(undefined);
       setDraftPolygon((current) => [...current, point]);
       return;
@@ -314,6 +471,12 @@ export function PdfSiteSetup() {
   const handlePointerMove = (event: React.PointerEvent) => {
     if (selectionMode === "boundaryPolygon" && !polygonBoundary.length) {
       setBoundaryPreviewPoint(getPointer(event));
+    }
+    if (
+      selectionMode === "ancillaryRectangle" ||
+      selectionMode === "ancillaryPolygon"
+    ) {
+      setAncillaryPreviewPoint(getPointer(event));
     }
     if (draggedVertex) {
       const point = getPointer(event);
@@ -341,6 +504,9 @@ export function PdfSiteSetup() {
     }
     if (!dragStart) return;
     const point = getPointer(event);
+    if (selectionMode === "ancillaryRectangle") {
+      setAncillaryPreviewPoint(point);
+    }
     const next = normalizeSelection(dragStart, point);
     setDragStart(undefined);
     setDraftSelection(undefined);
@@ -353,6 +519,12 @@ export function PdfSiteSetup() {
         setDraftBoundaryPolygon([]);
         setEdgeLengthDrafts([]);
         setContextZones([]);
+        setRoads([]);
+        setSelectedRoadId(undefined);
+        setPendingRoad(undefined);
+        setAncillaryBuildings([]);
+        setDraftAncillaryPolygon([]);
+        setPendingAncillaryBuilding(undefined);
         setSelectedZoneId(undefined);
         requestAnimationFrame(() => fitBounds(next));
       } else if (selectionMode === "boundaryRectangle") {
@@ -361,15 +533,33 @@ export function PdfSiteSetup() {
         setSiteWidthDraft(String(siteWidth));
         setDimensionsError("");
         setShowDimensionsDialog(true);
+      } else if (selectionMode === "road" && activeRoadType && activeRoadWidth) {
+        const road: SetupRoad = {
+          id: crypto.randomUUID(),
+          type: activeRoadType,
+          width: activeRoadWidth,
+          x: next.x,
+          y: next.y,
+          rectangleWidth: next.width,
+          rectangleHeight: next.height,
+        };
+        setPendingRoad(road);
+      } else if (selectionMode === "ancillaryRectangle") {
+        setPendingAncillaryBuilding({
+          id: crypto.randomUUID(),
+          type: "rectangle",
+          label: "Ancillary Building",
+          points: rectangleToPoints(next),
+        });
       }
     }
   };
 
   const finishPolygon = () => {
-    if ((selectionMode !== "greenPark" && selectionMode !== "residence") || draftPolygon.length < 3) return;
+    if (selectionMode !== "greenPark" || draftPolygon.length < 3) return;
     const zone: ContextZone = {
       id: crypto.randomUUID(),
-      type: selectionMode,
+      type: "greenPark",
       points: draftPolygon,
     };
     setContextZones((current) => [...current, zone]);
@@ -402,9 +592,127 @@ export function PdfSiteSetup() {
     setSelectionMode(mode);
     setDraftPolygon([]);
     setSelectedZoneId(undefined);
+    setSelectedRoadId(undefined);
+    setPendingRoad(undefined);
     setDragStart(undefined);
     setDraftSelection(undefined);
     setBoundaryPreviewPoint(undefined);
+    setDraftAncillaryPolygon([]);
+    setAncillaryPreviewPoint(undefined);
+    setPendingAncillaryBuilding(undefined);
+  };
+
+  const openAncillaryShapeDialog = () => {
+    setAncillaryShapeDraft("rectangle");
+    setShowAncillaryShapeDialog(true);
+  };
+
+  const continueAncillaryShape = () => {
+    setShowAncillaryShapeDialog(false);
+    changeSelectionMode(
+      ancillaryShapeDraft === "rectangle" ? "ancillaryRectangle" : "ancillaryPolygon",
+    );
+  };
+
+  function finishAncillaryPolygon() {
+    if (selectionMode !== "ancillaryPolygon" || draftAncillaryPolygon.length < 3) return;
+    setPendingAncillaryBuilding({
+      id: crypto.randomUUID(),
+      type: "polygon",
+      label: "Ancillary Building",
+      points: draftAncillaryPolygon,
+    });
+    setDraftAncillaryPolygon([]);
+    setAncillaryPreviewPoint(undefined);
+  }
+
+  const confirmPendingAncillaryBuilding = () => {
+    if (!pendingAncillaryBuilding) return;
+    setAncillaryBuildings((current) => [...current, pendingAncillaryBuilding]);
+    setPendingAncillaryBuilding(undefined);
+    setDraftAncillaryPolygon([]);
+    setAncillaryPreviewPoint(undefined);
+  };
+
+  const redrawPendingAncillaryBuilding = () => {
+    if (!pendingAncillaryBuilding) return;
+    const mode = pendingAncillaryBuilding.type === "rectangle"
+      ? "ancillaryRectangle"
+      : "ancillaryPolygon";
+    setPendingAncillaryBuilding(undefined);
+    setDraftAncillaryPolygon([]);
+    setAncillaryPreviewPoint(undefined);
+    setSelectionMode(mode);
+  };
+
+  const cancelPendingAncillaryBuilding = () => {
+    setPendingAncillaryBuilding(undefined);
+    setDraftAncillaryPolygon([]);
+    setAncillaryPreviewPoint(undefined);
+    setSelectionMode("crop");
+  };
+
+  const finishAncillaryBuildingMode = () => {
+    setPendingAncillaryBuilding(undefined);
+    setDraftAncillaryPolygon([]);
+    setAncillaryPreviewPoint(undefined);
+    setDragStart(undefined);
+    setDraftSelection(undefined);
+    setSelectionMode("crop");
+  };
+
+  const openRoadTypeDialog = () => {
+    setRoadTypeDraft(activeRoadType ?? "primary");
+    setRoadError("");
+    setShowRoadTypeDialog(true);
+  };
+
+  const continueRoadType = () => {
+    setShowRoadTypeDialog(false);
+    setRoadWidthDraft(String(
+      activeRoadType === roadTypeDraft && activeRoadWidth
+        ? activeRoadWidth
+        : getDefaultRoadWidth(roadTypeDraft),
+    ));
+    setRoadError("");
+    setShowRoadWidthDialog(true);
+  };
+
+  const applyRoadWidth = () => {
+    const width = Number(roadWidthDraft);
+    if (!roadWidthDraft.trim() || !Number.isFinite(width) || width <= 0) {
+      setRoadError("Enter a road width greater than 0.");
+      return;
+    }
+    setActiveRoadType(roadTypeDraft);
+    setActiveRoadWidth(width);
+    setShowRoadWidthDialog(false);
+    setRoadError("");
+    changeSelectionMode("road");
+  };
+
+  const deleteSelectedRoad = () => {
+    if (!selectedRoadId) return;
+    setRoads((current) => current.filter((road) => road.id !== selectedRoadId));
+    setSelectedRoadId(undefined);
+  };
+
+  const confirmPendingRoad = () => {
+    if (!pendingRoad) return;
+    setRoads((current) => [...current, pendingRoad]);
+    setSelectedRoadId(pendingRoad.id);
+    setPendingRoad(undefined);
+    setSelectionMode("crop");
+    setActiveRoadType(undefined);
+    setActiveRoadWidth(undefined);
+  };
+
+  const cancelPendingRoad = () => {
+    setPendingRoad(undefined);
+    setSelectedRoadId(undefined);
+    setSelectionMode("crop");
+    setActiveRoadType(undefined);
+    setActiveRoadWidth(undefined);
   };
 
   const confirmSiteDimensions = () => {
@@ -614,6 +922,20 @@ export function PdfSiteSetup() {
           y: round(point.y - cropSelection.y),
         })),
       })),
+      roads: roads.map((road) => ({
+        ...road,
+        x: round(road.x - cropSelection.x),
+        y: round(road.y - cropSelection.y),
+        rectangleWidth: round(road.rectangleWidth),
+        rectangleHeight: round(road.rectangleHeight),
+      })),
+      ancillaryBuildings: ancillaryBuildings.map((building) => ({
+        ...building,
+        points: building.points.map((point) => ({
+          x: round(point.x - cropSelection.x),
+          y: round(point.y - cropSelection.y),
+        })),
+      })),
     };
 
     try {
@@ -671,7 +993,7 @@ export function PdfSiteSetup() {
               <button
                 className="secondaryButton"
                 type="button"
-                disabled={!pdfDocument}
+                disabled={!renderSize.width}
                 onClick={() => rotatePage(-90)}
               >
                 Rotate Left
@@ -728,20 +1050,32 @@ export function PdfSiteSetup() {
                 Select Site Boundary
               </button>
               <button
+                className={selectionMode === "road" ? "" : "secondaryButton"}
+                type="button"
+                disabled={!cropSelection}
+                onClick={openRoadTypeDialog}
+              >
+                Select Road
+              </button>
+              <button
+                className={
+                  selectionMode === "ancillaryRectangle" || selectionMode === "ancillaryPolygon"
+                    ? ""
+                    : "secondaryButton"
+                }
+                type="button"
+                disabled={!cropSelection}
+                onClick={openAncillaryShapeDialog}
+              >
+                Select Ancillary Building
+              </button>
+              <button
                 className={selectionMode === "greenPark" ? "" : "secondaryButton"}
                 type="button"
                 disabled={!cropSelection}
                 onClick={() => changeSelectionMode("greenPark")}
               >
                 Select Green Park Area
-              </button>
-              <button
-                className={selectionMode === "residence" ? "" : "secondaryButton"}
-                type="button"
-                disabled={!cropSelection}
-                onClick={() => changeSelectionMode("residence")}
-              >
-                Select Residence Area
               </button>
             </div>
             {selectionMode === "boundaryPolygon" ? (
@@ -794,7 +1128,7 @@ export function PdfSiteSetup() {
               </div>
             ) : null}
             {polygonError ? <p className="errorText">{polygonError}</p> : null}
-            {selectionMode === "greenPark" || selectionMode === "residence" ? (
+            {selectionMode === "greenPark" ? (
               <div className="polygonActions">
                 <button type="button" disabled={draftPolygon.length < 3} onClick={finishPolygon}>
                   Finish Polygon
@@ -817,6 +1151,46 @@ export function PdfSiteSetup() {
                 </button>
               </div>
             ) : null}
+            {selectionMode === "road" ? (
+              <div className="polygonActions">
+                <p className="muted">
+                  {activeRoadType ? getRoadTypeLabel(activeRoadType) : "Road"} ({activeRoadWidth}m)
+                </p>
+                <button
+                  className="dangerButton"
+                  type="button"
+                  disabled={!selectedRoadId}
+                  onClick={deleteSelectedRoad}
+                >
+                  Delete Selected Road
+                </button>
+              </div>
+            ) : null}
+            {selectionMode === "ancillaryRectangle" ||
+            selectionMode === "ancillaryPolygon" ? (
+              <div className="ancillaryToolStatus">
+                <p>
+                  <strong>Ancillary Building Tool Active</strong>
+                  <span>
+                    {selectionMode === "ancillaryRectangle" ? "Rectangle" : "Polygon"} mode
+                  </span>
+                </p>
+                <button
+                  className="secondaryButton"
+                  type="button"
+                  onClick={finishAncillaryBuildingMode}
+                >
+                  Finish Ancillary Buildings
+                </button>
+              </div>
+            ) : null}
+            {selectionMode === "ancillaryPolygon" && !pendingAncillaryBuilding ? (
+              <ol className="drawingInstructions">
+                <li>Click to add vertices.</li>
+                <li>Double-click or press Esc to finish.</li>
+                <li>Ctrl+Z removes the most recent vertex.</li>
+              </ol>
+            ) : null}
             {selectionMode === "boundaryPolygon" ? (
               <ol className="drawingInstructions">
                 <li>Click to add vertices.</li>
@@ -830,6 +1204,10 @@ export function PdfSiteSetup() {
                   ? "Draw around the site diagram and useful surrounding context."
                   : selectionMode === "boundaryRectangle"
                     ? "Click the first corner, drag, and release to finish the rectangle."
+                    : selectionMode === "road"
+                      ? "Click the first corner, drag, and release to create a road rectangle."
+                    : selectionMode === "ancillaryRectangle"
+                      ? "Click the first corner, drag, and release to trace the ancillary building."
                     : "Click around the area to add polygon points, then finish the polygon. Drag its points to edit."}
               </p>
             )}
@@ -887,12 +1265,18 @@ export function PdfSiteSetup() {
             }}
             onPointerDown={handlePointerDown}
             onPointerMove={handlePointerMove}
-            onPointerLeave={() => setBoundaryPreviewPoint(undefined)}
+            onPointerLeave={() => {
+              setBoundaryPreviewPoint(undefined);
+            }}
             onPointerUp={handlePointerUp}
             onDoubleClick={(event) => {
-              if (selectionMode !== "boundaryPolygon" || polygonBoundary.length) return;
-              event.preventDefault();
-              finishBoundaryPolygon();
+              if (selectionMode === "boundaryPolygon" && !polygonBoundary.length) {
+                event.preventDefault();
+                finishBoundaryPolygon();
+              } else if (selectionMode === "ancillaryPolygon" && !pendingAncillaryBuilding) {
+                event.preventDefault();
+                finishAncillaryPolygon();
+              }
             }}
             onPointerCancel={() => {
               setDragStart(undefined);
@@ -928,6 +1312,44 @@ export function PdfSiteSetup() {
                 }}
               />
             ))}
+            {roads.map((road) => (
+              <RoadOverlay
+                key={road.id}
+                road={road}
+                isSelected={road.id === selectedRoadId}
+                onSelect={() => {
+                  setSelectedZoneId(undefined);
+                  setSelectedRoadId(road.id);
+                }}
+              />
+            ))}
+            {pendingRoad ? (
+              <RoadOverlay
+                road={pendingRoad}
+                isSelected={false}
+                isTemporary
+                onSelect={() => undefined}
+              />
+            ) : null}
+            {ancillaryBuildings.map((building, index) => (
+              <AncillaryBuildingOverlay
+                key={building.id}
+                building={building}
+                label={`Ancillary Building ${index + 1}`}
+              />
+            ))}
+            {pendingAncillaryBuilding ? (
+              <AncillaryBuildingOverlay
+                building={pendingAncillaryBuilding}
+                isTemporary
+              />
+            ) : null}
+            {draftAncillaryPolygon.length ? (
+              <AncillaryPolygonPreview
+                points={draftAncillaryPolygon}
+                previewPoint={ancillaryPreviewPoint}
+              />
+            ) : null}
             {draftPolygon.length ? (
               <ContextZoneOverlay
                 zone={{ id: "draft", type: selectionMode as ContextZoneType, points: draftPolygon }}
@@ -937,10 +1359,20 @@ export function PdfSiteSetup() {
                 onVertexPointerDown={() => undefined}
               />
             ) : null}
-            {draftSelection && (selectionMode === "crop" || selectionMode === "boundaryRectangle") ? (
+            {draftSelection && (
+              selectionMode === "crop" ||
+              selectionMode === "boundaryRectangle" ||
+              selectionMode === "road" ||
+              selectionMode === "ancillaryRectangle"
+            ) ? (
               <SelectionOverlay selection={draftSelection} variant={selectionMode} />
             ) : null}
-            {!pdfDocument ? <div className="emptyPdfState">Upload a PDF to choose the site plan page.</div> : null}
+            {(selectionMode === "ancillaryRectangle" ||
+              selectionMode === "ancillaryPolygon") &&
+            ancillaryPreviewPoint ? (
+              <AncillaryCursorLabel point={ancillaryPreviewPoint} />
+            ) : null}
+            {!renderSize.width ? <div className="emptyPdfState">Upload a PDF to choose the site plan page.</div> : null}
           </div>
         </section>
       </section>
@@ -1039,6 +1471,169 @@ export function PdfSiteSetup() {
               </button>
             </div>
           </form>
+        </FloatingToolPanel>
+      ) : null}
+      {showRoadTypeDialog ? (
+        <FloatingToolPanel
+          title="Select Road Type"
+          initialPosition={{ x: 330, y: 118 }}
+          onCancel={() => setShowRoadTypeDialog(false)}
+        >
+          <form
+            className="floatingToolForm"
+            onSubmit={(event) => {
+              event.preventDefault();
+              continueRoadType();
+            }}
+          >
+            {(["primary", "secondary", "pedestrian"] as RoadType[]).map((type, index) => (
+              <label className="floatingRadio" key={type}>
+                <input
+                  autoFocus={index === 0}
+                  type="radio"
+                  name="roadType"
+                  value={type}
+                  checked={roadTypeDraft === type}
+                  onChange={() => setRoadTypeDraft(type)}
+                />
+                <span>{getRoadTypeLabel(type)}</span>
+              </label>
+            ))}
+            <div className="floatingPanelActions">
+              <button type="submit">Continue</button>
+              <button className="secondaryButton" type="button" onClick={() => setShowRoadTypeDialog(false)}>
+                Cancel
+              </button>
+            </div>
+          </form>
+        </FloatingToolPanel>
+      ) : null}
+      {showAncillaryShapeDialog ? (
+        <FloatingToolPanel
+          title="Select Building Shape"
+          initialPosition={{ x: 340, y: 126 }}
+          onCancel={() => setShowAncillaryShapeDialog(false)}
+        >
+          <form
+            className="floatingToolForm"
+            onSubmit={(event) => {
+              event.preventDefault();
+              continueAncillaryShape();
+            }}
+          >
+            <label className="floatingRadio">
+              <input
+                autoFocus
+                type="radio"
+                name="ancillaryShape"
+                value="rectangle"
+                checked={ancillaryShapeDraft === "rectangle"}
+                onChange={() => setAncillaryShapeDraft("rectangle")}
+              />
+              <span>Rectangle</span>
+            </label>
+            <label className="floatingRadio">
+              <input
+                type="radio"
+                name="ancillaryShape"
+                value="polygon"
+                checked={ancillaryShapeDraft === "polygon"}
+                onChange={() => setAncillaryShapeDraft("polygon")}
+              />
+              <span>Polygon</span>
+            </label>
+            <div className="floatingPanelActions">
+              <button type="submit">Continue</button>
+              <button
+                className="secondaryButton"
+                type="button"
+                onClick={() => setShowAncillaryShapeDialog(false)}
+              >
+                Cancel
+              </button>
+            </div>
+          </form>
+        </FloatingToolPanel>
+      ) : null}
+      {showRoadWidthDialog ? (
+        <FloatingToolPanel
+          title="Road Width"
+          initialPosition={{ x: 350, y: 140 }}
+          onCancel={() => setShowRoadWidthDialog(false)}
+        >
+          <form
+            className="floatingToolForm"
+            onSubmit={(event) => {
+              event.preventDefault();
+              applyRoadWidth();
+            }}
+          >
+            <label>
+              <span>Road Width (m)</span>
+              <input
+                autoFocus
+                type="number"
+                min="0.1"
+                step="0.1"
+                value={roadWidthDraft}
+                onChange={(event) => {
+                  setRoadWidthDraft(event.target.value);
+                  setRoadError("");
+                }}
+              />
+            </label>
+            {roadError ? <p className="errorText">{roadError}</p> : null}
+            <div className="floatingPanelActions">
+              <button type="submit">Apply</button>
+              <button className="secondaryButton" type="button" onClick={() => setShowRoadWidthDialog(false)}>
+                Cancel
+              </button>
+            </div>
+          </form>
+        </FloatingToolPanel>
+      ) : null}
+      {pendingRoad ? (
+        <FloatingToolPanel
+          title="Confirm Road"
+          initialPosition={{ x: 360, y: 150 }}
+          onCancel={cancelPendingRoad}
+        >
+          <div className="floatingToolForm">
+            <div className="roadConfirmationSummary">
+              <span>Road Type:</span>
+              <strong>{getRoadTypeLabel(pendingRoad.type)}</strong>
+              <span>Width:</span>
+              <strong>{formatRoadWidth(pendingRoad.width)}m</strong>
+            </div>
+            <div className="floatingPanelActions">
+              <button type="button" onClick={confirmPendingRoad}>Confirm</button>
+              <button className="secondaryButton" type="button" onClick={cancelPendingRoad}>
+                Cancel
+              </button>
+            </div>
+          </div>
+        </FloatingToolPanel>
+      ) : null}
+      {pendingAncillaryBuilding ? (
+        <FloatingToolPanel
+          title="Confirm Ancillary Building"
+          initialPosition={{ x: 360, y: 150 }}
+          onCancel={cancelPendingAncillaryBuilding}
+        >
+          <div className="floatingToolForm">
+            <p className="muted">
+              Review the traced {pendingAncillaryBuilding.type} footprint before saving it.
+            </p>
+            <div className="floatingPanelActions ancillaryConfirmationActions">
+              <button type="button" onClick={confirmPendingAncillaryBuilding}>Confirm</button>
+              <button className="secondaryButton" type="button" onClick={redrawPendingAncillaryBuilding}>
+                Redraw
+              </button>
+              <button className="secondaryButton" type="button" onClick={cancelPendingAncillaryBuilding}>
+                Cancel
+              </button>
+            </div>
+          </div>
         </FloatingToolPanel>
       ) : null}
     </main>
@@ -1230,6 +1825,120 @@ function SelectionOverlay({
   );
 }
 
+function RoadOverlay({
+  road,
+  isSelected,
+  isTemporary = false,
+  onSelect,
+}: {
+  road: SetupRoad;
+  isSelected: boolean;
+  isTemporary?: boolean;
+  onSelect: () => void;
+}) {
+  return (
+    <button
+      className={`roadSelectionOverlay ${isSelected ? "selected" : ""} ${isTemporary ? "temporary" : ""}`}
+      type="button"
+      style={{
+        left: road.x,
+        top: road.y,
+        width: road.rectangleWidth,
+        height: road.rectangleHeight,
+      }}
+      onPointerDown={(event) => {
+        event.stopPropagation();
+        onSelect();
+      }}
+      aria-label={`${getRoadTypeLabel(road.type)} ${formatRoadWidth(road.width)} meters`}
+    >
+      <span>{getRoadTypeLabel(road.type)} ({formatRoadWidth(road.width)}m)</span>
+    </button>
+  );
+}
+
+function AncillaryBuildingOverlay({
+  building,
+  label,
+  isTemporary = false,
+}: {
+  building: AncillaryBuilding;
+  label?: string;
+  isTemporary?: boolean;
+}) {
+  const points = building.points.map((point) => `${point.x},${point.y}`).join(" ");
+  const center = label ? getPointsCenter(building.points) : undefined;
+
+  return (
+    <svg className="contextZoneOverlay" width="100%" height="100%" pointerEvents="none">
+      <polygon
+        points={points}
+        fill="rgba(120, 120, 120, 0.35)"
+        stroke="rgba(80, 80, 80, 1)"
+        strokeWidth={3}
+        strokeDasharray={isTemporary ? "10 7" : undefined}
+      />
+      {label && center ? (
+        <text
+          x={center.x}
+          y={center.y}
+          fill="#374151"
+          fontSize={14}
+          fontWeight={700}
+          textAnchor="middle"
+          dominantBaseline="middle"
+        >
+          {label}
+        </text>
+      ) : null}
+    </svg>
+  );
+}
+
+function AncillaryCursorLabel({ point }: { point: ContextPoint }) {
+  return (
+    <div
+      className="ancillaryCursorLabel"
+      style={{
+        left: point.x + 16,
+        top: point.y + 16,
+      }}
+    >
+      Ancillary Building
+    </div>
+  );
+}
+
+function AncillaryPolygonPreview({
+  points,
+  previewPoint,
+}: {
+  points: ContextPoint[];
+  previewPoint?: ContextPoint;
+}) {
+  const previewPoints = previewPoint ? [...points, previewPoint] : points;
+
+  return (
+    <svg className="contextZoneOverlay" width="100%" height="100%" pointerEvents="none">
+      <polyline
+        points={previewPoints.map((point) => `${point.x},${point.y}`).join(" ")}
+        fill={points.length >= 3 ? "rgba(120, 120, 120, 0.22)" : "none"}
+        stroke="rgba(80, 80, 80, 1)"
+        strokeWidth={3}
+        strokeDasharray="10 7"
+      />
+      {points.map((point, index) => (
+        <g key={`${point.x}-${point.y}-${index}`}>
+          <circle cx={point.x} cy={point.y} r={6} fill="#ffffff" stroke="#505050" strokeWidth={3} />
+          <text x={point.x + 9} y={point.y - 9} fill="#374151" fontSize={14} fontWeight={700}>
+            {getVertexLabel(index)}
+          </text>
+        </g>
+      ))}
+    </svg>
+  );
+}
+
 function BoundaryPolygonOverlay({
   points,
   complete,
@@ -1295,15 +2004,14 @@ function ContextZoneOverlay({
   onVertexPointerDown: (pointIndex: number, event: React.PointerEvent<SVGCircleElement>) => void;
 }) {
   const points = zone.points.map((point) => `${point.x},${point.y}`).join(" ");
-  const isPark = zone.type === "greenPark";
 
   return (
     <svg className="contextZoneOverlay" width="100%" height="100%">
       {zone.points.length >= 3 ? (
         <polygon
           points={points}
-          fill={isPark ? "rgba(134, 239, 172, 0.36)" : "rgba(209, 213, 219, 0.42)"}
-          stroke={isSelected ? "#f97316" : isPark ? "#16a34a" : "#6b7280"}
+          fill="rgba(134, 239, 172, 0.36)"
+          stroke={isSelected ? "#f97316" : "#16a34a"}
           strokeWidth={isSelected ? 3 : 2}
           strokeDasharray={isDraft ? "8 6" : undefined}
           onPointerDown={(event) => {
@@ -1315,7 +2023,7 @@ function ContextZoneOverlay({
         <polyline
           points={points}
           fill="none"
-          stroke={isPark ? "#16a34a" : "#6b7280"}
+          stroke="#16a34a"
           strokeWidth={3}
           strokeDasharray="8 6"
           pointerEvents="none"
@@ -1328,7 +2036,7 @@ function ContextZoneOverlay({
           cy={point.y}
           r={isSelected ? 7 : 5}
           fill="#ffffff"
-          stroke={isPark ? "#16a34a" : "#6b7280"}
+          stroke="#16a34a"
           strokeWidth={3}
           onPointerDown={(event) => onVertexPointerDown(index, event)}
         />
@@ -1367,6 +2075,23 @@ function normalizeSelection(start: { x: number; y: number }, end: { x: number; y
     y: Math.min(start.y, end.y),
     width: Math.abs(start.x - end.x),
     height: Math.abs(start.y - end.y),
+  };
+}
+
+function rectangleToPoints(selection: SelectionRect): ContextPoint[] {
+  return [
+    { x: selection.x, y: selection.y },
+    { x: selection.x + selection.width, y: selection.y },
+    { x: selection.x + selection.width, y: selection.y + selection.height },
+    { x: selection.x, y: selection.y + selection.height },
+  ];
+}
+
+function getPointsCenter(points: ContextPoint[]) {
+  if (!points.length) return { x: 0, y: 0 };
+  return {
+    x: points.reduce((total, point) => total + point.x, 0) / points.length,
+    y: points.reduce((total, point) => total + point.y, 0) / points.length,
   };
 }
 
@@ -1438,6 +2163,22 @@ function getVertexLabel(index: number) {
 
 function getEdgeLabel(index: number, pointCount: number) {
   return `Edge ${getVertexLabel(index)}-${getVertexLabel((index + 1) % pointCount)} (m)`;
+}
+
+function getRoadTypeLabel(type: RoadType) {
+  if (type === "primary") return "Primary Road";
+  if (type === "secondary") return "Secondary Road";
+  return "Pedestrian Pathway";
+}
+
+function getDefaultRoadWidth(type: RoadType) {
+  if (type === "primary") return 12;
+  if (type === "secondary") return 6;
+  return 7;
+}
+
+function formatRoadWidth(value: number) {
+  return Number.isInteger(value) ? String(value) : value.toFixed(1);
 }
 
 function isFormControl(target: HTMLElement | null) {
