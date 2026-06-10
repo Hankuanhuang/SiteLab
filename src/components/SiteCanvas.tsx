@@ -212,7 +212,14 @@ export function SiteCanvas({
   };
 
   return (
-    <div ref={wrapRef} className="canvasWrap">
+    <div
+      ref={wrapRef}
+      className="canvasWrap"
+      onWheel={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
+      }}
+    >
       <button className="fitButton secondaryButton" type="button" onClick={fitToScreen}>
         Fit to Screen
       </button>

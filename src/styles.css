@@ -156,9 +156,10 @@ p {
 }
 
 .editorPage {
-  min-height: 100vh;
+  height: 100vh;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
+  overflow: hidden;
 }
 
 .editorHeader {
@@ -253,6 +254,7 @@ p {
   min-height: 0;
   display: grid;
   grid-template-columns: minmax(0, 1fr) 320px;
+  overflow: hidden;
 }
 
 .editorBody.sidebarCollapsed {
@@ -264,6 +266,7 @@ p {
   min-width: 0;
   min-height: 0;
   overflow: hidden;
+  overscroll-behavior: none;
   background:
     linear-gradient(#dce5e8 1px, transparent 1px),
     linear-gradient(90deg, #dce5e8 1px, transparent 1px);
@@ -290,7 +293,11 @@ p {
   padding: 18px;
   background: var(--panel);
   border-left: 1px solid var(--line);
-  overflow: auto;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
 }
 
 .propertyPanel section {
@@ -827,6 +834,12 @@ input[type="range"] {
 }
 
 @media (max-width: 900px) {
+  .editorPage {
+    height: auto;
+    min-height: 100vh;
+    overflow: visible;
+  }
+
   .editorHeader {
     align-items: stretch;
     flex-direction: column;
@@ -834,6 +847,7 @@ input[type="range"] {
 
   .editorBody {
     grid-template-columns: 1fr;
+    overflow: visible;
   }
 
   .canvasWrap {

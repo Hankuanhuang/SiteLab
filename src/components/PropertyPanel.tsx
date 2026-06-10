@@ -96,7 +96,7 @@ export function PropertyPanel({
   };
 
   return (
-    <aside className="propertyPanel">
+    <aside className="propertyPanel" onWheel={(event) => event.stopPropagation()}>
       <section className="siteDimensionsSection">
         <p className="eyebrow">Site</p>
         <label>
