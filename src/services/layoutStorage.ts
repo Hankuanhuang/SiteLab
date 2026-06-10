@@ -3,7 +3,7 @@ import type {
   BuildingColor,
   ContextZone,
   Entrance,
-  EntranceLabel,
+  EntranceLabelPosition,
   LayoutExport,
   Sidewalk,
   SidewalkEdge,
@@ -364,6 +364,7 @@ function readEntrances(value: unknown, buildings: Building[]): Entrance[] | unde
     const x = readNumber(item.x);
     const y = readNumber(item.y);
     const rotation = readNumber(item.rotation);
+    const labelPosition = readEntranceLabelPosition(item.labelPosition) ?? "bottom";
     if (!label || !buildingId || !buildingIds.has(buildingId) || x === undefined || y === undefined || rotation === undefined) {
       return undefined;
     }
@@ -375,7 +376,8 @@ function readEntrances(value: unknown, buildings: Building[]): Entrance[] | unde
       buildingId,
       x,
       y,
-      rotation,
+      rotation: snapCardinalRotation(rotation),
+      labelPosition,
     };
   });
 
@@ -384,13 +386,19 @@ function readEntrances(value: unknown, buildings: Building[]): Entrance[] | unde
     : (entrances as Entrance[]);
 }
 
-function readEntranceLabel(value: unknown): EntranceLabel | undefined {
-  return value === "Main Entrance" ||
-    value === "Side Entrance" ||
-    value === "Service Entrance" ||
-    value === "Emergency Exit"
+function readEntranceLabel(value: unknown) {
+  return typeof value === "string" && value.trim() ? value : undefined;
+}
+
+function readEntranceLabelPosition(value: unknown): EntranceLabelPosition | undefined {
+  return value === "top" || value === "bottom" || value === "left" || value === "right"
     ? value
     : undefined;
+}
+
+function snapCardinalRotation(value: number) {
+  const normalized = ((value % 360) + 360) % 360;
+  return Math.round(normalized / 90) * 90 % 360;
 }
 
 function readPoints(value: unknown): Array<{ x: number; y: number }> | undefined {

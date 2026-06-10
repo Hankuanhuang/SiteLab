@@ -2,7 +2,7 @@ import type {
   Building,
   BuildingColor,
   Entrance,
-  EntranceLabel,
+  EntranceLabelPosition,
   PdfBackgroundView,
   Sidewalk,
   SidewalkEdge,
@@ -186,39 +186,55 @@ export function PropertyPanel({
       </section>
 
       <section>
-        <p className="eyebrow">Entrance</p>
+        <p className="eyebrow">Entrance Label</p>
         {selectedEntrance ? (
           <div className="buildingFields">
             <label>
-              <span>Entrance Type</span>
-              <select
+              <span>Label Text</span>
+              <input
+                type="text"
                 value={selectedEntrance.label}
                 onChange={(event) =>
                   onEntranceChange({
                     ...selectedEntrance,
-                    label: event.target.value as EntranceLabel,
-                  })
-                }
-              >
-                <option value="Main Entrance">Main Entrance</option>
-                <option value="Side Entrance">Side Entrance</option>
-                <option value="Service Entrance">Service Entrance</option>
-                <option value="Emergency Exit">Emergency Exit</option>
-              </select>
-            </label>
-            <label>
-              <span>Rotation (deg)</span>
-              <input
-                type="number"
-                step="1"
-                value={formatRotation(selectedEntrance.rotation)}
-                onChange={(event) =>
-                  onEntranceChange({
-                    ...selectedEntrance,
-                    rotation: normalizeRotation(Number(event.target.value) || 0),
+                    label: event.target.value,
                   })
                 }
               />
+            </label>
+            <label>
+              <span>Arrow Direction</span>
+              <select
+                value={getCardinalRotation(selectedEntrance.rotation)}
+                onChange={(event) =>
+                  onEntranceChange({
+                    ...selectedEntrance,
+                    rotation: Number(event.target.value),
+                  })
+                }
+              >
+                <option value="0">North</option>
+                <option value="90">East</option>
+                <option value="180">South</option>
+                <option value="270">West</option>
+              </select>
+            </label>
+            <label>
+              <span>Label Position</span>
+              <select
+                value={selectedEntrance.labelPosition}
+                onChange={(event) =>
+                  onEntranceChange({
+                    ...selectedEntrance,
+                    labelPosition: event.target.value as EntranceLabelPosition,
+                  })
+                }
+              >
+                <option value="top">Top</option>
+                <option value="bottom">Bottom</option>
+                <option value="left">Left</option>
+                <option value="right">Right</option>
+              </select>
             </label>
             <label>
               <span>X (m)</span>
@@ -595,4 +611,8 @@ function normalizeRotation(value: number) {
 
 function formatRotation(value: number) {
   return Math.round(normalizeRotation(value) * 10) / 10;
+}
+
+function getCardinalRotation(value: number) {
+  return Math.round(normalizeRotation(value) / 90) * 90 % 360;
 }

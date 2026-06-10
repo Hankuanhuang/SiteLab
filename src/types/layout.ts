@@ -130,10 +130,13 @@ export type EntranceLabel =
   | "Service Entrance"
   | "Emergency Exit";
 
+export type EntranceLabelPosition = "top" | "bottom" | "left" | "right";
+
 export interface Entrance {
   id: string;
   type: "entrance";
-  label: EntranceLabel;
+  label: string;
+  labelPosition: EntranceLabelPosition;
   buildingId: string;
   x: number;
   y: number;

@@ -372,6 +372,30 @@ function EntranceShape({
 }) {
   const x = entrance.x * scale.x;
   const y = entrance.y * scale.y;
+  const arrowLength = 34;
+  const labelWidth = 150;
+  const labelHeight = 18;
+  const verticalLabelGap = 10;
+  const horizontalLabelGap = 5;
+  const radians = (entrance.rotation * Math.PI) / 180;
+  const tail = {
+    x: -Math.sin(radians) * arrowLength,
+    y: Math.cos(radians) * arrowLength,
+  };
+  const arrowBounds = {
+    minX: Math.min(0, tail.x),
+    maxX: Math.max(0, tail.x),
+    minY: Math.min(0, tail.y),
+    maxY: Math.max(0, tail.y),
+  };
+  const labelPosition = getEntranceLabelCoordinates(
+    entrance.labelPosition,
+    arrowBounds,
+    labelWidth,
+    labelHeight,
+    verticalLabelGap,
+    horizontalLabelGap,
+  );
 
   return (
     <Group
@@ -390,7 +414,7 @@ function EntranceShape({
       onDragEnd={onEditEnd}
     >
       <Arrow
-        points={[-34, 0, 0, 0]}
+        points={[0, arrowLength, 0, 0]}
         rotation={entrance.rotation}
         stroke="#dc2626"
         fill="#dc2626"
@@ -401,17 +425,58 @@ function EntranceShape({
       />
       <Circle radius={isSelected ? 5 : 3} fill="#dc2626" listening={false} />
       <Text
-        x={10}
-        y={-10}
-        width={130}
+        x={labelPosition.x}
+        y={labelPosition.y}
+        width={labelWidth}
+        height={labelHeight}
         text={entrance.label}
         fill="#b91c1c"
         fontSize={13}
         fontStyle="bold"
+        align="center"
+        verticalAlign="middle"
+        rotation={0}
+        wrap="none"
+        ellipsis
         listening={false}
       />
     </Group>
   );
+}
+
+function getEntranceLabelCoordinates(
+  position: Entrance["labelPosition"],
+  arrowBounds: { minX: number; maxX: number; minY: number; maxY: number },
+  labelWidth: number,
+  labelHeight: number,
+  verticalGap: number,
+  horizontalGap: number,
+) {
+  const arrowCenterX = (arrowBounds.minX + arrowBounds.maxX) / 2;
+  const arrowCenterY = (arrowBounds.minY + arrowBounds.maxY) / 2;
+
+  if (position === "top") {
+    return {
+      x: arrowCenterX - labelWidth / 2,
+      y: arrowBounds.minY - verticalGap - labelHeight,
+    };
+  }
+  if (position === "left") {
+    return {
+      x: arrowBounds.minX - horizontalGap - labelWidth,
+      y: arrowCenterY - labelHeight / 2,
+    };
+  }
+  if (position === "right") {
+    return {
+      x: arrowBounds.maxX + horizontalGap,
+      y: arrowCenterY - labelHeight / 2,
+    };
+  }
+  return {
+    x: arrowCenterX - labelWidth / 2,
+    y: arrowBounds.maxY + verticalGap,
+  };
 }
 
 function ContextZoneShape({

@@ -115,7 +115,7 @@ function drawEntrances(
   entrances.forEach((entrance) => {
     const tipX = origin.x + entrance.x * scale;
     const tipY = origin.y + entrance.y * scale;
-    const radians = (entrance.rotation * Math.PI) / 180;
+    const radians = ((entrance.rotation - 90) * Math.PI) / 180;
     const arrowLength = 74;
     const tailX = tipX - Math.cos(radians) * arrowLength;
     const tailY = tipY - Math.sin(radians) * arrowLength;
@@ -143,11 +143,64 @@ function drawEntrances(
     context.fill();
 
     context.font = "700 28px Arial";
+    const labelWidth = context.measureText(entrance.label).width;
+    const labelHeight = 34;
+    const verticalGap = 18;
+    const horizontalGap = 9;
+    const arrowBounds = {
+      minX: Math.min(tipX, tailX),
+      maxX: Math.max(tipX, tailX),
+      minY: Math.min(tipY, tailY),
+      maxY: Math.max(tipY, tailY),
+    };
+    const labelPosition = getExportEntranceLabelCoordinates(
+      entrance.labelPosition,
+      arrowBounds,
+      labelWidth,
+      labelHeight,
+      verticalGap,
+      horizontalGap,
+    );
     context.textAlign = "left";
     context.textBaseline = "middle";
-    context.fillText(entrance.label, tipX + 18, tipY - 20);
+    context.fillText(entrance.label, labelPosition.x, labelPosition.y + labelHeight / 2);
     context.restore();
   });
+}
+
+function getExportEntranceLabelCoordinates(
+  position: Entrance["labelPosition"],
+  arrowBounds: { minX: number; maxX: number; minY: number; maxY: number },
+  labelWidth: number,
+  labelHeight: number,
+  verticalGap: number,
+  horizontalGap: number,
+) {
+  const arrowCenterX = (arrowBounds.minX + arrowBounds.maxX) / 2;
+  const arrowCenterY = (arrowBounds.minY + arrowBounds.maxY) / 2;
+
+  if (position === "top") {
+    return {
+      x: arrowCenterX - labelWidth / 2,
+      y: arrowBounds.minY - verticalGap - labelHeight,
+    };
+  }
+  if (position === "left") {
+    return {
+      x: arrowBounds.minX - horizontalGap - labelWidth,
+      y: arrowCenterY - labelHeight / 2,
+    };
+  }
+  if (position === "right") {
+    return {
+      x: arrowBounds.maxX + horizontalGap,
+      y: arrowCenterY - labelHeight / 2,
+    };
+  }
+  return {
+    x: arrowCenterX - labelWidth / 2,
+    y: arrowBounds.maxY + verticalGap,
+  };
 }
 
 function drawSidewalks(

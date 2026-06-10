@@ -521,6 +521,7 @@ export function SiteEditor() {
       x: placement.x,
       y: placement.y,
       rotation: placement.rotation,
+      labelPosition: "bottom",
     };
 
     recordCurrent();
@@ -916,18 +917,18 @@ function getEntrancePlacement(building: Building, localX: number, localY: number
   const nearest = distances.reduce((current, item) => (item.distance < current.distance ? item : current));
   const edgePoint =
     nearest.edge === "top"
-      ? { x, y: 0, inwardRotation: 90 }
+      ? { x, y: 0, inwardRotation: 180 }
       : nearest.edge === "right"
-        ? { x: building.length, y, inwardRotation: 180 }
+        ? { x: building.length, y, inwardRotation: 270 }
         : nearest.edge === "bottom"
-          ? { x, y: building.width, inwardRotation: 270 }
-          : { x: 0, y, inwardRotation: 0 };
+          ? { x, y: building.width, inwardRotation: 0 }
+          : { x: 0, y, inwardRotation: 90 };
   const radians = (building.rotation * Math.PI) / 180;
 
   return {
     x: building.x + edgePoint.x * Math.cos(radians) - edgePoint.y * Math.sin(radians),
     y: building.y + edgePoint.x * Math.sin(radians) + edgePoint.y * Math.cos(radians),
-    rotation: normalizeAngle(building.rotation + edgePoint.inwardRotation),
+    rotation: snapCardinalAngle(building.rotation + edgePoint.inwardRotation),
   };
 }
 
@@ -947,12 +948,16 @@ function moveEntranceWithBuilding(entrance: Entrance, previous: Building, next: 
     ...entrance,
     x: next.x + nextLocalX * Math.cos(nextRadians) - nextLocalY * Math.sin(nextRadians),
     y: next.y + nextLocalX * Math.sin(nextRadians) + nextLocalY * Math.cos(nextRadians),
-    rotation: normalizeAngle(entrance.rotation + next.rotation - previous.rotation),
+    rotation: snapCardinalAngle(entrance.rotation + next.rotation - previous.rotation),
   };
 }
 
 function normalizeAngle(value: number) {
   return ((value % 360) + 360) % 360;
+}
+
+function snapCardinalAngle(value: number) {
+  return Math.round(normalizeAngle(value) / 90) * 90 % 360;
 }
 
 function clampTreeCoordinate(value: number, limit: number, radius: number) {
