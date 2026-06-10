@@ -698,9 +698,16 @@ input[type="range"] {
   line-height: 1.5;
 }
 
+.setupModalOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 999;
+  background: rgba(0, 0, 0, 0.45);
+}
+
 .floatingToolPanel {
   position: fixed;
-  z-index: 1000;
+  z-index: 1;
   width: min(300px, calc(100vw - 16px));
   overflow: hidden;
   border: 1px solid #cbd5e1;

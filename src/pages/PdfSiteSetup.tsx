@@ -194,6 +194,7 @@ export function PdfSiteSetup() {
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null;
+      if (showShapeDialog || showDimensionsDialog) return;
       if (event.code === "Space" && !isFormControl(target)) {
         spacePressedRef.current = true;
         event.preventDefault();
@@ -241,7 +242,13 @@ export function PdfSiteSetup() {
       window.removeEventListener("keydown", handleKeyDown);
       window.removeEventListener("keyup", handleKeyUp);
     };
-  }, [fitSite, polygonBoundary.length, selectionMode]);
+  }, [
+    fitSite,
+    polygonBoundary.length,
+    selectionMode,
+    showDimensionsDialog,
+    showShapeDialog,
+  ]);
 
   const rotatePage = (degrees: number) => {
     setCropSelection(undefined);
@@ -423,6 +430,15 @@ export function PdfSiteSetup() {
     setSiteShape("rectangle");
     setPolygonBoundary([]);
     setEdgeLengthDrafts([]);
+  };
+
+  const cancelSiteDimensions = () => {
+    setShowDimensionsDialog(false);
+    setDimensionsError("");
+  };
+
+  const cancelShapeSelection = () => {
+    setShowShapeDialog(false);
   };
 
   const continueFromShapeDialog = () => {
@@ -929,7 +945,11 @@ export function PdfSiteSetup() {
         </section>
       </section>
       {showDimensionsDialog ? (
-        <FloatingToolPanel title="Site Dimensions" initialPosition={{ x: 360, y: 118 }}>
+        <FloatingToolPanel
+          title="Site Dimensions"
+          initialPosition={{ x: 360, y: 118 }}
+          onCancel={cancelSiteDimensions}
+        >
           <form
             className="floatingToolForm"
             onSubmit={(event) => {
@@ -970,10 +990,7 @@ export function PdfSiteSetup() {
               <button
                 className="secondaryButton"
                 type="button"
-                onClick={() => {
-                  setShowDimensionsDialog(false);
-                  setDimensionsError("");
-                }}
+                onClick={cancelSiteDimensions}
               >
                 Cancel
               </button>
@@ -982,7 +999,11 @@ export function PdfSiteSetup() {
         </FloatingToolPanel>
       ) : null}
       {showShapeDialog ? (
-        <FloatingToolPanel title="Site Boundary" initialPosition={{ x: 330, y: 118 }}>
+        <FloatingToolPanel
+          title="Site Boundary"
+          initialPosition={{ x: 330, y: 118 }}
+          onCancel={cancelShapeSelection}
+        >
           <form
             className="floatingToolForm"
             onSubmit={(event) => {
@@ -992,6 +1013,7 @@ export function PdfSiteSetup() {
           >
             <label className="floatingRadio">
               <input
+                autoFocus
                 type="radio"
                 name="siteShape"
                 value="rectangle"
@@ -1012,7 +1034,7 @@ export function PdfSiteSetup() {
             </label>
             <div className="floatingPanelActions">
               <button type="submit">Continue</button>
-              <button className="secondaryButton" type="button" onClick={() => setShowShapeDialog(false)}>
+              <button className="secondaryButton" type="button" onClick={cancelShapeSelection}>
                 Cancel
               </button>
             </div>
@@ -1026,10 +1048,12 @@ export function PdfSiteSetup() {
 function FloatingToolPanel({
   title,
   initialPosition,
+  onCancel,
   children,
 }: {
   title: string;
   initialPosition: PanelPosition;
+  onCancel: () => void;
   children: ReactNode;
 }) {
   const panelRef = useRef<HTMLDivElement>(null);
@@ -1053,6 +1077,17 @@ function FloatingToolPanel({
     window.addEventListener("resize", constrainPosition);
     return () => window.removeEventListener("resize", constrainPosition);
   }, [keepInsideViewport]);
+
+  useEffect(() => {
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      onCancel();
+    };
+
+    window.addEventListener("keydown", handleEscape);
+    return () => window.removeEventListener("keydown", handleEscape);
+  }, [onCancel]);
 
   const handleDragStart = (event: React.PointerEvent<HTMLDivElement>) => {
     if (event.button !== 0) return;
@@ -1079,25 +1114,51 @@ function FloatingToolPanel({
     dragOffsetRef.current = undefined;
   };
 
+  const keepFocusInside = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.key !== "Tab") return;
+    const panel = panelRef.current;
+    if (!panel) return;
+    const focusable = Array.from(
+      panel.querySelectorAll<HTMLElement>(
+        'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+      ),
+    );
+    if (!focusable.length) return;
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  };
+
   return (
-    <div
-      ref={panelRef}
-      className="floatingToolPanel"
-      role="dialog"
-      aria-label={title}
-      style={{ left: position.x, top: position.y }}
-    >
+    <div className="setupModalOverlay" role="presentation">
       <div
-        className="floatingToolHeader"
-        onPointerDown={handleDragStart}
-        onPointerMove={handleDragMove}
-        onPointerUp={stopDragging}
-        onPointerCancel={stopDragging}
+        ref={panelRef}
+        className="floatingToolPanel"
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+        style={{ left: position.x, top: position.y }}
+        onKeyDown={keepFocusInside}
       >
-        <h2>{title}</h2>
-        <span aria-hidden="true">Drag</span>
+        <div
+          className="floatingToolHeader"
+          onPointerDown={handleDragStart}
+          onPointerMove={handleDragMove}
+          onPointerUp={stopDragging}
+          onPointerCancel={stopDragging}
+        >
+          <h2>{title}</h2>
+          <span aria-hidden="true">Drag</span>
+        </div>
+        <div className="floatingToolBody">{children}</div>
       </div>
-      <div className="floatingToolBody">{children}</div>
     </div>
   );
 }
