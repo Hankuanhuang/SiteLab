@@ -286,7 +286,7 @@ p {
 .propertyPanel {
   display: grid;
   align-content: start;
-  gap: 20px;
+  gap: 22px;
   padding: 18px;
   background: var(--panel);
   border-left: 1px solid var(--line);
@@ -295,7 +295,38 @@ p {
 
 .propertyPanel section {
   display: grid;
-  gap: 12px;
+  gap: 14px;
+}
+
+.propertyPanel .eyebrow {
+  margin-bottom: 2px;
+  font-size: 18px;
+  line-height: 1.2;
+  text-transform: none;
+}
+
+.propertyPanel label,
+.propertyPanel .fieldLabel {
+  font-size: 15px;
+  line-height: 1.35;
+}
+
+.propertyPanel input,
+.propertyPanel select,
+.propertyPanel .propertyValue {
+  font-size: 15px;
+  line-height: 1.35;
+}
+
+.propertyPanel button {
+  font-size: 15px;
+  line-height: 1.2;
+}
+
+.propertyPanel .muted,
+.propertyPanel .selectedColor {
+  font-size: 14px;
+  line-height: 1.5;
 }
 
 label {
@@ -345,7 +376,7 @@ input[type="range"] {
 
 .buildingFields {
   display: grid;
-  gap: 12px;
+  gap: 14px;
 }
 
 .colorSection {
@@ -389,8 +420,8 @@ input[type="range"] {
 
 .programSection {
   display: grid;
-  gap: 10px;
-  padding-top: 4px;
+  gap: 12px;
+  padding-top: 6px;
   border-top: 1px solid var(--line);
 }
 
@@ -409,7 +440,7 @@ input[type="range"] {
 
 .programRows {
   display: grid;
-  gap: 10px;
+  gap: 12px;
 }
 
 .programRow {
@@ -444,9 +475,9 @@ input[type="range"] {
 }
 
 .setupPage {
-  min-height: 100vh;
+  height: 100vh;
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-rows: auto 1fr;
 }
 
 .setupHeader {
@@ -467,13 +498,13 @@ input[type="range"] {
 .setupGrid {
   min-height: 0;
   display: grid;
-  grid-template-columns: 300px minmax(0, 1fr);
+  grid-template-columns: 320px minmax(0, 1fr);
 }
 
 .setupPanel {
   display: grid;
   align-content: start;
-  gap: 20px;
+  gap: 22px;
   padding: 18px;
   background: var(--panel);
   border-right: 1px solid var(--line);
@@ -482,7 +513,36 @@ input[type="range"] {
 
 .setupPanel section {
   display: grid;
-  gap: 12px;
+  gap: 14px;
+}
+
+.setupPanel .eyebrow {
+  margin-bottom: 2px;
+  font-size: 18px;
+  line-height: 1.2;
+  text-transform: none;
+}
+
+.setupPanel label {
+  font-size: 15px;
+  line-height: 1.35;
+}
+
+.setupPanel input,
+.setupPanel select {
+  font-size: 15px;
+  line-height: 1.35;
+}
+
+.setupPanel button {
+  font-size: 15px;
+  line-height: 1.2;
+}
+
+.setupPanel .muted,
+.setupPanel .errorText {
+  font-size: 14px;
+  line-height: 1.5;
 }
 
 .pageThumbs {
@@ -504,7 +564,8 @@ input[type="range"] {
 .rotationStatus {
   margin: -4px 0 0;
   color: var(--muted);
-  font-size: 12px;
+  font-size: 14px;
+  line-height: 1.4;
 }
 
 .pageThumb {
@@ -544,6 +605,11 @@ input[type="range"] {
   background-size: 24px 24px;
 }
 
+.pdfWorkspace.isPanning,
+.pdfWorkspace.isPanning .pdfViewport {
+  cursor: grabbing;
+}
+
 .pdfViewport {
   position: absolute;
   margin: 0;
@@ -556,12 +622,30 @@ input[type="range"] {
   will-change: transform, left, top;
 }
 
-.fitSiteButton {
+.pdfNavigationControls {
   position: absolute;
   top: 14px;
   right: 14px;
-  z-index: 5;
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px;
+  border: 1px solid rgba(148, 163, 184, 0.7);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.94);
   box-shadow: 0 2px 8px rgba(15, 23, 42, 0.14);
+}
+
+.pdfNavigationControls button {
+  min-width: 34px;
+}
+
+.pdfNavigationControls span {
+  padding: 0 5px;
+  color: var(--muted);
+  font-size: 11px;
+  white-space: nowrap;
 }
 
 .pdfViewport canvas {
@@ -585,23 +669,120 @@ input[type="range"] {
 
 .selectionModeControls {
   display: grid;
-  gap: 8px;
+  gap: 10px;
 }
 
 .polygonActions {
   display: grid;
-  gap: 8px;
+  gap: 10px;
 }
 
 .edgeLengthPanel {
   display: grid;
-  gap: 10px;
-  padding-top: 12px;
+  gap: 12px;
+  padding-top: 14px;
   border-top: 1px solid var(--line);
 }
 
 .edgeLengthPanel .errorText {
   margin: 0;
+}
+
+.drawingInstructions {
+  display: grid;
+  gap: 7px;
+  margin: 0;
+  padding-left: 22px;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.floatingToolPanel {
+  position: fixed;
+  z-index: 1000;
+  width: min(300px, calc(100vw - 16px));
+  overflow: hidden;
+  border: 1px solid #cbd5e1;
+  border-radius: 9px;
+  background: #ffffff;
+  box-shadow:
+    0 16px 38px rgba(15, 23, 42, 0.18),
+    0 3px 10px rgba(15, 23, 42, 0.1);
+}
+
+.floatingToolHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 40px;
+  padding: 0 12px;
+  border-bottom: 1px solid #dbe3e7;
+  background: #f6f8f9;
+  cursor: move;
+  touch-action: none;
+  user-select: none;
+}
+
+.floatingToolHeader h2 {
+  margin: 0;
+  color: #1f2937;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.floatingToolHeader span {
+  color: #849199;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.floatingToolBody {
+  padding: 14px;
+}
+
+.floatingToolForm {
+  display: grid;
+  gap: 12px;
+}
+
+.floatingToolForm label {
+  color: #46565e;
+}
+
+.floatingToolForm input[type="number"] {
+  min-height: 36px;
+}
+
+.floatingRadio {
+  grid-template-columns: 18px 1fr;
+  align-items: center;
+  gap: 9px;
+  min-height: 30px;
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.floatingRadio input {
+  width: 16px;
+  min-height: 16px;
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+.floatingPanelActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding-top: 2px;
+}
+
+.floatingPanelActions button {
+  min-height: 34px;
+  padding: 0 12px;
+  font-size: 13px;
 }
 
 .contextZoneOverlay {
@@ -657,5 +838,9 @@ input[type="range"] {
   .setupPanel {
     border-right: 0;
     border-bottom: 1px solid var(--line);
+  }
+
+  .pdfNavigationControls span {
+    display: none;
   }
 }

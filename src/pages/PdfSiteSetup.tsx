@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { ReactNode } from "react";
 import * as pdfjs from "pdfjs-dist";
 import pdfWorker from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 import { defaultSiteData } from "../models/Site";
@@ -22,6 +23,11 @@ interface SelectionRect {
   height: number;
 }
 
+interface PanelPosition {
+  x: number;
+  y: number;
+}
+
 type SelectionMode = "crop" | "boundaryRectangle" | "boundaryPolygon" | ContextZoneType;
 
 export function PdfSiteSetup() {
@@ -39,6 +45,7 @@ export function PdfSiteSetup() {
   const [boundarySelection, setBoundarySelection] = useState<SelectionRect>();
   const [polygonBoundary, setPolygonBoundary] = useState<ContextPoint[]>([]);
   const [draftBoundaryPolygon, setDraftBoundaryPolygon] = useState<ContextPoint[]>([]);
+  const [boundaryPreviewPoint, setBoundaryPreviewPoint] = useState<ContextPoint>();
   const [edgeLengthDrafts, setEdgeLengthDrafts] = useState<string[]>([]);
   const [siteShape, setSiteShape] = useState<SiteShape>("rectangle");
   const [showShapeDialog, setShowShapeDialog] = useState(false);
@@ -58,6 +65,11 @@ export function PdfSiteSetup() {
   const [dimensionsError, setDimensionsError] = useState("");
   const [error, setError] = useState("");
   const [camera, setCamera] = useState({ scale: 1, x: 18, y: 18 });
+  const [isPanning, setIsPanning] = useState(false);
+  const panStartRef = useRef<
+    { clientX: number; clientY: number; cameraX: number; cameraY: number } | undefined
+  >(undefined);
+  const spacePressedRef = useRef(false);
 
   const canContinue = Boolean(
     pdfDocument &&
@@ -103,6 +115,7 @@ export function PdfSiteSetup() {
     setBoundarySelection(undefined);
     setPolygonBoundary([]);
     setDraftBoundaryPolygon([]);
+    setBoundaryPreviewPoint(undefined);
     setEdgeLengthDrafts([]);
     setDraftSelection(undefined);
     setSelectionMode("crop");
@@ -159,6 +172,7 @@ export function PdfSiteSetup() {
         setBoundarySelection(undefined);
         setPolygonBoundary([]);
         setDraftBoundaryPolygon([]);
+        setBoundaryPreviewPoint(undefined);
         setEdgeLengthDrafts([]);
         setSelectionMode("crop");
         setSiteShape("rectangle");
@@ -178,12 +192,14 @@ export function PdfSiteSetup() {
   }, [fitBounds, pdfDocument, pageNumber, rotation]);
 
   useEffect(() => {
-    const handleFitShortcut = (event: KeyboardEvent) => {
+    const handleKeyDown = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null;
+      if (event.code === "Space" && !isFormControl(target)) {
+        spacePressedRef.current = true;
+        event.preventDefault();
+      }
       if (
-        target?.tagName === "INPUT" ||
-        target?.tagName === "SELECT" ||
-        target?.tagName === "TEXTAREA" ||
+        isFormControl(target) ||
         event.ctrlKey ||
         event.metaKey ||
         event.altKey
@@ -193,26 +209,46 @@ export function PdfSiteSetup() {
       if (event.key.toLowerCase() === "f") {
         event.preventDefault();
         fitSite();
+      } else if (
+        selectionMode === "boundaryPolygon" &&
+        !polygonBoundary.length &&
+        event.key === "Backspace"
+      ) {
+        event.preventDefault();
+        setDraftBoundaryPolygon((current) => current.slice(0, -1));
+        setPolygonError("");
+      } else if (
+        selectionMode === "boundaryPolygon" &&
+        !polygonBoundary.length &&
+        event.key === "Escape"
+      ) {
+        event.preventDefault();
+        setDraftBoundaryPolygon([]);
+        setBoundaryPreviewPoint(undefined);
+        setPolygonError("");
       }
     };
 
-    window.addEventListener("keydown", handleFitShortcut);
-    return () => window.removeEventListener("keydown", handleFitShortcut);
-  }, [fitSite]);
+    const handleKeyUp = (event: KeyboardEvent) => {
+      if (event.code === "Space") {
+        spacePressedRef.current = false;
+      }
+    };
 
-  useEffect(() => {
-    const workspace = workspaceRef.current;
-    if (!workspace) return;
-    const observer = new ResizeObserver(() => fitSite());
-    observer.observe(workspace);
-    return () => observer.disconnect();
-  }, [fitSite]);
+    window.addEventListener("keydown", handleKeyDown);
+    window.addEventListener("keyup", handleKeyUp);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("keyup", handleKeyUp);
+    };
+  }, [fitSite, polygonBoundary.length, selectionMode]);
 
   const rotatePage = (degrees: number) => {
     setCropSelection(undefined);
     setBoundarySelection(undefined);
     setPolygonBoundary([]);
     setDraftBoundaryPolygon([]);
+    setBoundaryPreviewPoint(undefined);
     setEdgeLengthDrafts([]);
     setDraftSelection(undefined);
     setSelectionMode("crop");
@@ -250,6 +286,8 @@ export function PdfSiteSetup() {
 
   const handlePointerDown = (event: React.PointerEvent) => {
     if (!renderSize.width || !renderSize.height) return;
+    if (event.button === 1 || spacePressedRef.current) return;
+    if (event.button !== 0) return;
     const point = getPointer(event);
     if (selectionMode === "boundaryPolygon") {
       if (event.detail >= 2 || polygonBoundary.length) return;
@@ -267,6 +305,9 @@ export function PdfSiteSetup() {
   };
 
   const handlePointerMove = (event: React.PointerEvent) => {
+    if (selectionMode === "boundaryPolygon" && !polygonBoundary.length) {
+      setBoundaryPreviewPoint(getPointer(event));
+    }
     if (draggedVertex) {
       const point = getPointer(event);
       setContextZones((current) =>
@@ -309,6 +350,10 @@ export function PdfSiteSetup() {
         requestAnimationFrame(() => fitBounds(next));
       } else if (selectionMode === "boundaryRectangle") {
         setBoundarySelection(next);
+        setSiteLengthDraft(String(siteLength));
+        setSiteWidthDraft(String(siteWidth));
+        setDimensionsError("");
+        setShowDimensionsDialog(true);
       }
     }
   };
@@ -334,6 +379,7 @@ export function PdfSiteSetup() {
     setPolygonBoundary(draftBoundaryPolygon);
     setEdgeLengthDrafts(draftBoundaryPolygon.map(() => ""));
     setDraftBoundaryPolygon([]);
+    setBoundaryPreviewPoint(undefined);
     setPolygonError("");
     const bounds = getPointsBounds(draftBoundaryPolygon);
     if (bounds) requestAnimationFrame(() => fitBounds(bounds));
@@ -351,16 +397,7 @@ export function PdfSiteSetup() {
     setSelectedZoneId(undefined);
     setDragStart(undefined);
     setDraftSelection(undefined);
-  };
-
-  const openDimensionsDialog = () => {
-    if (selectionMode === "boundaryRectangle" || selectionMode === "boundaryPolygon") {
-      changeSelectionMode("crop");
-    }
-    setSiteLengthDraft(String(siteLength));
-    setSiteWidthDraft(String(siteWidth));
-    setDimensionsError("");
-    setShowDimensionsDialog(true);
+    setBoundaryPreviewPoint(undefined);
   };
 
   const confirmSiteDimensions = () => {
@@ -384,16 +421,21 @@ export function PdfSiteSetup() {
     setShowDimensionsDialog(false);
     setDimensionsError("");
     setSiteShape("rectangle");
-    setBoundarySelection(undefined);
     setPolygonBoundary([]);
     setEdgeLengthDrafts([]);
-    changeSelectionMode("boundaryRectangle");
   };
 
   const continueFromShapeDialog = () => {
     setShowShapeDialog(false);
     if (shapeDraft === "rectangle") {
-      openDimensionsDialog();
+      setSiteShape("rectangle");
+      setBoundarySelection(undefined);
+      setPolygonBoundary([]);
+      setDraftBoundaryPolygon([]);
+      setBoundaryPreviewPoint(undefined);
+      setEdgeLengthDrafts([]);
+      setPolygonError("");
+      changeSelectionMode("boundaryRectangle");
       return;
     }
 
@@ -401,9 +443,60 @@ export function PdfSiteSetup() {
     setBoundarySelection(undefined);
     setPolygonBoundary([]);
     setDraftBoundaryPolygon([]);
+    setBoundaryPreviewPoint(undefined);
     setEdgeLengthDrafts([]);
     setPolygonError("");
     changeSelectionMode("boundaryPolygon");
+  };
+
+  const handleWorkspaceWheel = (event: React.WheelEvent<HTMLElement>) => {
+    if (!renderSize.width || !renderSize.height) return;
+    event.preventDefault();
+    const workspace = workspaceRef.current;
+    if (!workspace) return;
+    const bounds = workspace.getBoundingClientRect();
+    const pointerX = event.clientX - bounds.left;
+    const pointerY = event.clientY - bounds.top;
+    const factor = Math.exp(-event.deltaY * 0.0015);
+
+    setCamera((current) => {
+      const nextScale = clamp(current.scale * factor, 0.05, 12);
+      const worldX = (pointerX - current.x) / current.scale;
+      const worldY = (pointerY - current.y) / current.scale;
+      return {
+        scale: nextScale,
+        x: pointerX - worldX * nextScale,
+        y: pointerY - worldY * nextScale,
+      };
+    });
+  };
+
+  const handleWorkspacePointerDown = (event: React.PointerEvent<HTMLElement>) => {
+    if (event.button !== 1 && !spacePressedRef.current) return;
+    event.preventDefault();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    panStartRef.current = {
+      clientX: event.clientX,
+      clientY: event.clientY,
+      cameraX: camera.x,
+      cameraY: camera.y,
+    };
+    setIsPanning(true);
+  };
+
+  const handleWorkspacePointerMove = (event: React.PointerEvent<HTMLElement>) => {
+    const start = panStartRef.current;
+    if (!start) return;
+    setCamera((current) => ({
+      ...current,
+      x: start.cameraX + event.clientX - start.clientX,
+      y: start.cameraY + event.clientY - start.clientY,
+    }));
+  };
+
+  const stopWorkspacePan = () => {
+    panStartRef.current = undefined;
+    setIsPanning(false);
   };
 
   const continueToEditor = () => {
@@ -593,30 +686,6 @@ export function PdfSiteSetup() {
           </section>
 
           <section>
-            <p className="eyebrow">Site Size</p>
-            <label>
-              <span>Site Length (m)</span>
-              <input
-                type="number"
-                min="1"
-                step="0.1"
-                value={siteLength.toFixed(1)}
-                onChange={(event) => setSiteLength(Number(event.target.value) || 1)}
-              />
-            </label>
-            <label>
-              <span>Site Width (m)</span>
-              <input
-                type="number"
-                min="1"
-                step="0.1"
-                value={siteWidth.toFixed(1)}
-                onChange={(event) => setSiteWidth(Number(event.target.value) || 1)}
-              />
-            </label>
-          </section>
-
-          <section>
             <p className="eyebrow">Selection Mode</p>
             <div className="selectionModeControls">
               <button
@@ -732,28 +801,64 @@ export function PdfSiteSetup() {
                 </button>
               </div>
             ) : null}
-            <p className="muted">
-              {selectionMode === "crop"
-                ? "Draw around the site diagram and useful surrounding context."
-                : selectionMode === "boundaryRectangle"
-                  ? "Draw the buildable site boundary inside the cropped area."
-                  : selectionMode === "boundaryPolygon"
-                    ? "Click each site corner. Double click the final corner to finish."
-                  : "Click around the area to add polygon points, then finish the polygon. Drag its points to edit."}
-            </p>
+            {selectionMode === "boundaryPolygon" ? (
+              <ol className="drawingInstructions">
+                <li>Click to add vertices.</li>
+                <li>Double-click to finish polygon.</li>
+                <li>Esc cancels current polygon.</li>
+                <li>Backspace removes the last vertex.</li>
+              </ol>
+            ) : (
+              <p className="muted">
+                {selectionMode === "crop"
+                  ? "Draw around the site diagram and useful surrounding context."
+                  : selectionMode === "boundaryRectangle"
+                    ? "Click the first corner, drag, and release to finish the rectangle."
+                    : "Click around the area to add polygon points, then finish the polygon. Drag its points to edit."}
+              </p>
+            )}
           </section>
         </aside>
 
-        <section ref={workspaceRef} className="pdfWorkspace">
-          <button
-            className="fitSiteButton secondaryButton"
-            type="button"
-            disabled={!cropSelection}
-            onClick={fitSite}
-            title="Fit cropped site (F)"
-          >
-            Fit Site
-          </button>
+        <section
+          ref={workspaceRef}
+          className={`pdfWorkspace ${isPanning ? "isPanning" : ""}`}
+          onWheel={handleWorkspaceWheel}
+          onPointerDown={handleWorkspacePointerDown}
+          onPointerMove={handleWorkspacePointerMove}
+          onPointerUp={stopWorkspacePan}
+          onPointerCancel={stopWorkspacePan}
+        >
+          <div className="pdfNavigationControls">
+            <button
+              className="secondaryButton compactButton"
+              type="button"
+              disabled={!pdfDocument}
+              onClick={() => setCamera((current) => ({ ...current, scale: clamp(current.scale * 1.2, 0.05, 12) }))}
+              title="Zoom in"
+            >
+              +
+            </button>
+            <button
+              className="secondaryButton compactButton"
+              type="button"
+              disabled={!pdfDocument}
+              onClick={() => setCamera((current) => ({ ...current, scale: clamp(current.scale / 1.2, 0.05, 12) }))}
+              title="Zoom out"
+            >
+              -
+            </button>
+            <button
+              className="secondaryButton compactButton"
+              type="button"
+              disabled={!cropSelection}
+              onClick={fitSite}
+              title="Fit cropped site (F)"
+            >
+              Fit
+            </button>
+            <span>Wheel zoom · Middle or Space-drag pan</span>
+          </div>
           <div
             ref={viewportRef}
             className="pdfViewport"
@@ -766,6 +871,7 @@ export function PdfSiteSetup() {
             }}
             onPointerDown={handlePointerDown}
             onPointerMove={handlePointerMove}
+            onPointerLeave={() => setBoundaryPreviewPoint(undefined)}
             onPointerUp={handlePointerUp}
             onDoubleClick={(event) => {
               if (selectionMode !== "boundaryPolygon" || polygonBoundary.length) return;
@@ -786,7 +892,11 @@ export function PdfSiteSetup() {
             {polygonBoundary.length ? (
               <BoundaryPolygonOverlay points={polygonBoundary} complete />
             ) : draftBoundaryPolygon.length ? (
-              <BoundaryPolygonOverlay points={draftBoundaryPolygon} complete={false} />
+              <BoundaryPolygonOverlay
+                points={draftBoundaryPolygon}
+                complete={false}
+                previewPoint={boundaryPreviewPoint}
+              />
             ) : null}
             {contextZones.map((zone) => (
               <ContextZoneOverlay
@@ -819,20 +929,16 @@ export function PdfSiteSetup() {
         </section>
       </section>
       {showDimensionsDialog ? (
-        <div className="modalBackdrop" role="presentation">
+        <FloatingToolPanel title="Site Dimensions" initialPosition={{ x: 360, y: 118 }}>
           <form
-            className="saveLayoutDialog"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="site-dimensions-title"
+            className="floatingToolForm"
             onSubmit={(event) => {
               event.preventDefault();
               confirmSiteDimensions();
             }}
           >
-            <h2 id="site-dimensions-title">Site Dimensions Required</h2>
             <label>
-              <span>Site Length (m)</span>
+              <span>Length (m)</span>
               <input
                 autoFocus
                 type="number"
@@ -846,7 +952,7 @@ export function PdfSiteSetup() {
               />
             </label>
             <label>
-              <span>Site Width (m)</span>
+              <span>Width (m)</span>
               <input
                 type="number"
                 min="0.1"
@@ -859,8 +965,8 @@ export function PdfSiteSetup() {
               />
             </label>
             {dimensionsError ? <p className="errorText">{dimensionsError}</p> : null}
-            <div className="dialogActions">
-              <button type="submit">Confirm</button>
+            <div className="floatingPanelActions">
+              <button type="submit">Apply</button>
               <button
                 className="secondaryButton"
                 type="button"
@@ -873,22 +979,18 @@ export function PdfSiteSetup() {
               </button>
             </div>
           </form>
-        </div>
+        </FloatingToolPanel>
       ) : null}
       {showShapeDialog ? (
-        <div className="modalBackdrop" role="presentation">
+        <FloatingToolPanel title="Site Boundary" initialPosition={{ x: 330, y: 118 }}>
           <form
-            className="saveLayoutDialog"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="site-shape-title"
+            className="floatingToolForm"
             onSubmit={(event) => {
               event.preventDefault();
               continueFromShapeDialog();
             }}
           >
-            <h2 id="site-shape-title">Select Site Shape</h2>
-            <label className="inlineToggle">
+            <label className="floatingRadio">
               <input
                 type="radio"
                 name="siteShape"
@@ -898,7 +1000,7 @@ export function PdfSiteSetup() {
               />
               <span>Rectangle</span>
             </label>
-            <label className="inlineToggle">
+            <label className="floatingRadio">
               <input
                 type="radio"
                 name="siteShape"
@@ -908,16 +1010,95 @@ export function PdfSiteSetup() {
               />
               <span>Polygon</span>
             </label>
-            <div className="dialogActions">
+            <div className="floatingPanelActions">
               <button type="submit">Continue</button>
               <button className="secondaryButton" type="button" onClick={() => setShowShapeDialog(false)}>
                 Cancel
               </button>
             </div>
           </form>
-        </div>
+        </FloatingToolPanel>
       ) : null}
     </main>
+  );
+}
+
+function FloatingToolPanel({
+  title,
+  initialPosition,
+  children,
+}: {
+  title: string;
+  initialPosition: PanelPosition;
+  children: ReactNode;
+}) {
+  const panelRef = useRef<HTMLDivElement>(null);
+  const dragOffsetRef = useRef<PanelPosition | undefined>(undefined);
+  const [position, setPosition] = useState(initialPosition);
+
+  const keepInsideViewport = useCallback((next: PanelPosition) => {
+    const panel = panelRef.current;
+    const width = panel?.offsetWidth ?? 300;
+    const height = panel?.offsetHeight ?? 180;
+    const margin = 8;
+    return {
+      x: clamp(next.x, margin, Math.max(margin, window.innerWidth - width - margin)),
+      y: clamp(next.y, margin, Math.max(margin, window.innerHeight - height - margin)),
+    };
+  }, []);
+
+  useEffect(() => {
+    const constrainPosition = () => setPosition((current) => keepInsideViewport(current));
+    constrainPosition();
+    window.addEventListener("resize", constrainPosition);
+    return () => window.removeEventListener("resize", constrainPosition);
+  }, [keepInsideViewport]);
+
+  const handleDragStart = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    dragOffsetRef.current = {
+      x: event.clientX - position.x,
+      y: event.clientY - position.y,
+    };
+  };
+
+  const handleDragMove = (event: React.PointerEvent<HTMLDivElement>) => {
+    const offset = dragOffsetRef.current;
+    if (!offset) return;
+    setPosition(
+      keepInsideViewport({
+        x: event.clientX - offset.x,
+        y: event.clientY - offset.y,
+      }),
+    );
+  };
+
+  const stopDragging = () => {
+    dragOffsetRef.current = undefined;
+  };
+
+  return (
+    <div
+      ref={panelRef}
+      className="floatingToolPanel"
+      role="dialog"
+      aria-label={title}
+      style={{ left: position.x, top: position.y }}
+    >
+      <div
+        className="floatingToolHeader"
+        onPointerDown={handleDragStart}
+        onPointerMove={handleDragMove}
+        onPointerUp={stopDragging}
+        onPointerCancel={stopDragging}
+      >
+        <h2>{title}</h2>
+        <span aria-hidden="true">Drag</span>
+      </div>
+      <div className="floatingToolBody">{children}</div>
+    </div>
   );
 }
 
@@ -991,10 +1172,13 @@ function SelectionOverlay({
 function BoundaryPolygonOverlay({
   points,
   complete,
+  previewPoint,
 }: {
   points: ContextPoint[];
   complete: boolean;
+  previewPoint?: ContextPoint;
 }) {
+  const previewPoints = previewPoint ? [...points, previewPoint] : points;
   return (
     <svg className="contextZoneOverlay" width="100%" height="100%">
       {complete ? (
@@ -1007,7 +1191,7 @@ function BoundaryPolygonOverlay({
         />
       ) : (
         <polyline
-          points={points.map((point) => `${point.x},${point.y}`).join(" ")}
+          points={previewPoints.map((point) => `${point.x},${point.y}`).join(" ")}
           fill="none"
           stroke="#0f766e"
           strokeWidth={3}
@@ -1023,6 +1207,15 @@ function BoundaryPolygonOverlay({
           </text>
         </g>
       ))}
+      {!complete && previewPoint ? (
+        <circle
+          cx={previewPoint.x}
+          cy={previewPoint.y}
+          r={4}
+          fill="#0f766e"
+          pointerEvents="none"
+        />
+      ) : null}
     </svg>
   );
 }
@@ -1184,4 +1377,13 @@ function getVertexLabel(index: number) {
 
 function getEdgeLabel(index: number, pointCount: number) {
   return `Edge ${getVertexLabel(index)}-${getVertexLabel((index + 1) % pointCount)} (m)`;
+}
+
+function isFormControl(target: HTMLElement | null) {
+  return (
+    target?.tagName === "INPUT" ||
+    target?.tagName === "SELECT" ||
+    target?.tagName === "TEXTAREA" ||
+    target?.tagName === "BUTTON"
+  );
 }
