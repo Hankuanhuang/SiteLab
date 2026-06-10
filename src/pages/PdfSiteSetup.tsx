@@ -1365,7 +1365,7 @@ export function PdfSiteSetup() {
             <p className="eyebrow">Selection Mode</p>
             <div className="selectionModeControls">
               <button
-                className={selectionMode === "crop" ? "" : "secondaryButton"}
+                className={selectionMode === "crop" ? "cropToolActive" : "secondaryButton"}
                 type="button"
                 disabled={!pdfDocument}
                 onClick={() => changeSelectionMode("crop")}

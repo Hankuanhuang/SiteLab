@@ -56,6 +56,7 @@ interface SiteCanvasProps {
 const targetFitRatio = 1;
 const gridRowSize = 24;
 const topGridPaddingRows = 2.5;
+const bottomGridPaddingRows = 2;
 const defaultTreePlacementRadius = 2;
 const minimumStageSize = {
   width: 720,
@@ -1306,10 +1307,17 @@ function getFittedScale(width: number, height: number, viewport: { width: number
 
 function getTopFitOffset(viewportHeight: number, pageHeight: number) {
   const preferredTopPadding = gridRowSize * topGridPaddingRows;
+  const preferredBottomPadding = gridRowSize * bottomGridPaddingRows;
 
   if (viewportHeight <= preferredTopPadding) {
     return Math.max(0, viewportHeight - pageHeight);
   }
 
-  return preferredTopPadding;
+  return Math.max(
+    0,
+    Math.min(
+      preferredTopPadding,
+      viewportHeight - pageHeight - preferredBottomPadding,
+    ),
+  );
 }

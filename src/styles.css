@@ -1005,6 +1005,17 @@ input[type="range"] {
   gap: 10px;
 }
 
+.selectionModeControls .cropToolActive {
+  border-color: #f97316;
+  background: #f97316;
+  color: #ffffff;
+}
+
+.selectionModeControls .cropToolActive:hover {
+  border-color: #ea580c;
+  background: #ea580c;
+}
+
 .polygonActions {
   display: grid;
   gap: 10px;
