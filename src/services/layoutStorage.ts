@@ -5,6 +5,8 @@ import type {
   ContextZone,
   Entrance,
   EntranceLabelPosition,
+  ExistingBuilding,
+  ExistingTree,
   LayoutExport,
   Sidewalk,
   SidewalkEdge,
@@ -39,6 +41,8 @@ export function buildLayoutJson(
   contextZones: ContextZone[] = [],
   roads: SetupRoad[] = [],
   ancillaryBuildings: AncillaryBuilding[] = [],
+  existingBuildings: ExistingBuilding[] = [],
+  existingTrees: ExistingTree[] = [],
   entrances: Entrance[] = [],
   projectName = "Untitled Layout",
   savedAt = new Date().toISOString(),
@@ -126,6 +130,20 @@ export function buildLayoutJson(
         y: round(point.y),
       })),
     })),
+    existingBuildings: existingBuildings.map((building) => ({
+      ...building,
+      points: building.points.map((point) => ({
+        x: round(point.x),
+        y: round(point.y),
+      })),
+    })),
+    existingTrees: existingTrees.map((tree) => ({
+      ...tree,
+      x: round(tree.x),
+      y: round(tree.y),
+      radius: round(tree.radius),
+      diameter: round(tree.diameter),
+    })),
     entrances: entrances.map((entrance) => ({
       ...entrance,
       x: round(entrance.x),
@@ -158,6 +176,8 @@ export function parseLayoutJson(
   contextZones: ContextZone[];
   roads: SetupRoad[];
   ancillaryBuildings: AncillaryBuilding[];
+  existingBuildings: ExistingBuilding[];
+  existingTrees: ExistingTree[];
   entrances: Entrance[];
   projectName: string;
   savedAt: string;
@@ -199,6 +219,10 @@ export function parseLayoutJson(
   if (roads === undefined) return undefined;
   const ancillaryBuildings = readAncillaryBuildings(value.ancillaryBuildings);
   if (ancillaryBuildings === undefined) return undefined;
+  const existingBuildings = readExistingBuildings(value.existingBuildings);
+  if (existingBuildings === undefined) return undefined;
+  const existingTrees = readExistingTrees(value.existingTrees);
+  if (existingTrees === undefined) return undefined;
   const entrances = readEntrances(value.entrances, buildings as Building[]);
   if (entrances === undefined) return undefined;
   const projectName =
@@ -222,6 +246,8 @@ export function parseLayoutJson(
     contextZones,
     roads,
     ancillaryBuildings,
+    existingBuildings,
+    existingTrees,
     entrances,
     projectName,
     savedAt,
@@ -366,23 +392,25 @@ function readContextZones(value: unknown): ContextZone[] | undefined {
   const zones = value
     .filter((item) => isRecord(item) && item.type === "greenPark")
     .map((item) => {
-    if (!isRecord(item) || !Array.isArray(item.points) || item.points.length < 3) {
-      return undefined;
-    }
-    const points = item.points.map((point) => {
-      if (!isRecord(point)) return undefined;
-      const x = readNumber(point.x);
-      const y = readNumber(point.y);
-      return x === undefined || y === undefined ? undefined : { x, y };
-    });
-    if (points.some((point) => point === undefined)) return undefined;
+      if (!isRecord(item) || !Array.isArray(item.points) || item.points.length < 3) {
+        return undefined;
+      }
+      const points = item.points.map((point) => {
+        if (!isRecord(point)) return undefined;
+        const x = readNumber(point.x);
+        const y = readNumber(point.y);
+        return x === undefined || y === undefined ? undefined : { x, y };
+      });
+      if (points.some((point) => point === undefined)) return undefined;
 
-    return {
-      id: typeof item.id === "string" && item.id ? item.id : crypto.randomUUID(),
-      type: "greenPark" as const,
-      points: points as Array<{ x: number; y: number }>,
-    };
-  });
+      return {
+        id: typeof item.id === "string" && item.id ? item.id : crypto.randomUUID(),
+        type: "greenPark" as const,
+        shape: item.shape === "rectangle" ? "rectangle" as const : "polygon" as const,
+        label: typeof item.label === "string" && item.label ? item.label : "Green Park Area",
+        points: points as Array<{ x: number; y: number }>,
+      };
+    });
 
   return zones.some((zone) => zone === undefined) ? undefined : (zones as ContextZone[]);
 }
@@ -448,6 +476,59 @@ function readAncillaryBuildings(value: unknown): AncillaryBuilding[] | undefined
   return buildings.some((building) => building === undefined)
     ? undefined
     : (buildings as AncillaryBuilding[]);
+}
+
+function readExistingBuildings(value: unknown): ExistingBuilding[] | undefined {
+  if (value === undefined) return [];
+  if (!Array.isArray(value)) return undefined;
+
+  const buildings = value.map((item) => {
+    if (!isRecord(item) || (item.type !== "rectangle" && item.type !== "polygon")) {
+      return undefined;
+    }
+    const points = readPoints(item.points);
+    if (!points || points.length < 3) return undefined;
+    return {
+      id: typeof item.id === "string" && item.id ? item.id : crypto.randomUUID(),
+      type: item.type,
+      points,
+      label: typeof item.label === "string" && item.label.trim()
+        ? item.label
+        : "Existing Building",
+    };
+  });
+
+  return buildings.some((building) => building === undefined)
+    ? undefined
+    : (buildings as ExistingBuilding[]);
+}
+
+function readExistingTrees(value: unknown): ExistingTree[] | undefined {
+  if (value === undefined) return [];
+  if (!Array.isArray(value)) return undefined;
+
+  const trees = value.map((item) => {
+    if (!isRecord(item)) return undefined;
+    const x = readNumber(item.x);
+    const y = readNumber(item.y);
+    const radius = readPositiveNumber(item.radius);
+    const diameter = readPositiveNumber(item.diameter);
+    if (x === undefined || y === undefined || radius === undefined || diameter === undefined) {
+      return undefined;
+    }
+    return {
+      id: typeof item.id === "string" && item.id ? item.id : crypto.randomUUID(),
+      x,
+      y,
+      radius,
+      diameter,
+      label: typeof item.label === "string" && item.label.trim()
+        ? item.label
+        : "Existing Tree",
+    };
+  });
+
+  return trees.some((tree) => tree === undefined) ? undefined : (trees as ExistingTree[]);
 }
 
 function readEntrances(value: unknown, buildings: Building[]): Entrance[] | undefined {

@@ -695,6 +695,11 @@ input[type="range"] {
   font-size: 13px;
 }
 
+.greenParkToolStatus {
+  border-color: rgba(22, 163, 74, 0.45);
+  background: rgba(134, 239, 172, 0.14);
+}
+
 .setupPage {
   height: 100vh;
   display: grid;
@@ -896,6 +901,26 @@ input[type="range"] {
 .selectionOverlay.ancillaryRectangle {
   border: 3px dashed rgba(80, 80, 80, 1);
   background: rgba(120, 120, 120, 0.25);
+}
+
+.selectionOverlay.greenParkRectangle {
+  border: 3px dashed #16a34a;
+  background: rgba(134, 239, 172, 0.28);
+}
+
+.selectionOverlay.existingBuildingRectangle {
+  border: 3px dashed rgba(50, 50, 50, 1);
+  background: rgba(80, 80, 80, 0.28);
+}
+
+.existingBuildingToolStatus {
+  border-color: rgba(50, 50, 50, 0.5);
+  background: rgba(80, 80, 80, 0.1);
+}
+
+.treeToolStatus {
+  border-color: rgba(22, 101, 52, 0.45);
+  background: rgba(34, 197, 94, 0.1);
 }
 
 .ancillaryCursorLabel {

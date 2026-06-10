@@ -6,6 +6,8 @@ import type {
   Building,
   ContextZone,
   Entrance,
+  ExistingBuilding,
+  ExistingTree,
   PdfBackgroundMeta,
   PdfBackgroundView,
   Sidewalk,
@@ -172,6 +174,8 @@ export function SiteCanvas({
   );
   const roads = backgroundMeta?.roads ?? [];
   const ancillaryBuildings = backgroundMeta?.ancillaryBuildings ?? [];
+  const existingBuildings = backgroundMeta?.existingBuildings ?? [];
+  const existingTrees = backgroundMeta?.existingTrees ?? [];
   const boundaryDimensionGuides = getBoundaryDimensionGuides(
     buildings,
     selectedBuildingId,
@@ -305,6 +309,25 @@ export function SiteCanvas({
               key={building.id}
               building={building}
               label={`Ancillary Building ${index + 1}`}
+              crop={crop}
+              backgroundView={backgroundView}
+              pageScale={pageScale}
+            />
+          ))}
+          {existingBuildings.map((building, index) => (
+            <ExistingBuildingShape
+              key={building.id}
+              building={building}
+              label={`Existing Building ${index + 1}`}
+              crop={crop}
+              backgroundView={backgroundView}
+              pageScale={pageScale}
+            />
+          ))}
+          {existingTrees.map((tree) => (
+            <ExistingTreeShape
+              key={tree.id}
+              tree={tree}
               crop={crop}
               backgroundView={backgroundView}
               pageScale={pageScale}
@@ -453,6 +476,7 @@ function AncillaryBuildingShape({
         stroke="rgba(80, 80, 80, 1)"
         strokeWidth={2}
       />
+      <PolygonHatch points={points} color="rgba(80,80,80,0.42)" />
       <Text
         x={centerX - 80}
         y={centerY - 9}
@@ -465,6 +489,132 @@ function AncillaryBuildingShape({
       />
     </Group>
   );
+}
+
+function ExistingBuildingShape({
+  building,
+  label,
+  crop,
+  backgroundView,
+  pageScale,
+}: {
+  building: ExistingBuilding;
+  label: string;
+  crop: { x: number; y: number };
+  backgroundView: PdfBackgroundView;
+  pageScale: number;
+}) {
+  const points = getBackgroundShapePoints(building.points, crop, backgroundView, pageScale);
+  const center = getFlatPointsCenter(points);
+  return (
+    <Group listening={false}>
+      <Line
+        points={points}
+        closed
+        fill="rgba(80,80,80,0.35)"
+        stroke="rgba(50,50,50,1)"
+        strokeWidth={2.5}
+      />
+      <Text
+        x={center.x - 80}
+        y={center.y - 9}
+        width={160}
+        text={label}
+        fill="#262626"
+        fontSize={13}
+        fontStyle="bold"
+        align="center"
+      />
+    </Group>
+  );
+}
+
+function ExistingTreeShape({
+  tree,
+  crop,
+  backgroundView,
+  pageScale,
+}: {
+  tree: ExistingTree;
+  crop: { x: number; y: number };
+  backgroundView: PdfBackgroundView;
+  pageScale: number;
+}) {
+  const offsetX = backgroundView === "full" ? crop.x : 0;
+  const offsetY = backgroundView === "full" ? crop.y : 0;
+  const x = (tree.x + offsetX) * pageScale;
+  const y = (tree.y + offsetY) * pageScale;
+  const radius = tree.radius * pageScale;
+  return (
+    <Group listening={false}>
+      <Circle x={x} y={y} radius={radius} fill="rgba(34,197,94,0.3)" stroke="#166534" strokeWidth={2.5} />
+      <Circle x={x - radius * 0.22} y={y - radius * 0.1} radius={radius * 0.48} fill="rgba(74,222,128,0.34)" />
+      <Circle x={x + radius * 0.22} y={y + radius * 0.08} radius={radius * 0.42} fill="rgba(22,163,74,0.3)" />
+      <Circle x={x} y={y} radius={Math.max(2, radius * 0.1)} fill="#166534" />
+    </Group>
+  );
+}
+
+function PolygonHatch({ points, color }: { points: number[]; color: string }) {
+  if (points.length < 6) return null;
+  const xs = points.filter((_, index) => index % 2 === 0);
+  const ys = points.filter((_, index) => index % 2 === 1);
+  const minX = Math.min(...xs);
+  const maxX = Math.max(...xs);
+  const minY = Math.min(...ys);
+  const maxY = Math.max(...ys);
+  const spacing = 12;
+  const lineCount = Math.ceil((maxX - minX + maxY - minY) / spacing) + 2;
+  return (
+    <Group
+      listening={false}
+      clipFunc={(context: Konva.Context) => {
+        context.beginPath();
+        context.moveTo(points[0], points[1]);
+        for (let index = 2; index < points.length; index += 2) {
+          context.lineTo(points[index], points[index + 1]);
+        }
+        context.closePath();
+      }}
+    >
+      {Array.from({ length: lineCount }, (_, index) => {
+        const offset = minX - (maxY - minY) + index * spacing;
+        return (
+          <Line
+            key={offset}
+            points={[offset, maxY, offset + (maxY - minY), minY]}
+            stroke={color}
+            strokeWidth={1.25}
+          />
+        );
+      })}
+    </Group>
+  );
+}
+
+function getBackgroundShapePoints(
+  sourcePoints: Array<{ x: number; y: number }>,
+  crop: { x: number; y: number },
+  backgroundView: PdfBackgroundView,
+  pageScale: number,
+) {
+  const offsetX = backgroundView === "full" ? crop.x : 0;
+  const offsetY = backgroundView === "full" ? crop.y : 0;
+  return sourcePoints.flatMap((point) => [
+    (point.x + offsetX) * pageScale,
+    (point.y + offsetY) * pageScale,
+  ]);
+}
+
+function getFlatPointsCenter(points: number[]) {
+  let x = 0;
+  let y = 0;
+  const count = points.length / 2;
+  for (let index = 0; index < points.length; index += 2) {
+    x += points[index];
+    y += points[index + 1];
+  }
+  return { x: x / count, y: y / count };
 }
 
 function SetupRoadShape({
@@ -662,14 +812,16 @@ function ContextZoneShape({
     (point.y + (backgroundView === "full" ? crop.y : 0)) * pageScale,
   ]);
   return (
-    <Line
-      points={points}
-      closed
-      fill="rgba(134, 239, 172, 0.34)"
-      stroke="#16a34a"
-      strokeWidth={2}
-      listening={false}
-    />
+    <Group listening={false}>
+      <Line
+        points={points}
+        closed
+        fill="rgba(134, 239, 172, 0.28)"
+        stroke="#16a34a"
+        strokeWidth={2}
+      />
+      <PolygonHatch points={points} color="rgba(22,163,74,0.45)" />
+    </Group>
   );
 }
 

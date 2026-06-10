@@ -612,6 +612,8 @@ export function SiteEditor() {
           contextZones: parsed.contextZones,
           roads: parsed.roads,
           ancillaryBuildings: parsed.ancillaryBuildings,
+          existingBuildings: parsed.existingBuildings,
+          existingTrees: parsed.existingTrees,
         };
       });
       setSelectedBuildingId(undefined);
@@ -652,6 +654,8 @@ export function SiteEditor() {
           backgroundMeta?.contextZones,
           backgroundMeta?.roads,
           backgroundMeta?.ancillaryBuildings,
+          backgroundMeta?.existingBuildings,
+          backgroundMeta?.existingTrees,
           entrances,
           nextProjectName,
           new Date().toISOString(),
@@ -1111,6 +1115,8 @@ function createDefaultBackgroundMeta(site: SiteDimensions): PdfBackgroundMeta {
     contextZones: [],
     roads: [],
     ancillaryBuildings: [],
+    existingBuildings: [],
+    existingTrees: [],
   };
 }
 

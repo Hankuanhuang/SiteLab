@@ -49,6 +49,8 @@ export interface PdfBackgroundMeta {
   contextZones?: ContextZone[];
   roads?: SetupRoad[];
   ancillaryBuildings?: AncillaryBuilding[];
+  existingBuildings?: ExistingBuilding[];
+  existingTrees?: ExistingTree[];
 }
 
 export type PdfBackgroundView = "crop" | "full";
@@ -63,6 +65,8 @@ export interface ContextPoint {
 export interface ContextZone {
   id: string;
   type: ContextZoneType;
+  shape?: AncillaryBuildingShape;
+  label?: string;
   points: ContextPoint[];
 }
 
@@ -84,6 +88,22 @@ export interface AncillaryBuilding {
   id: string;
   type: AncillaryBuildingShape;
   points: ContextPoint[];
+  label: string;
+}
+
+export interface ExistingBuilding {
+  id: string;
+  type: AncillaryBuildingShape;
+  points: ContextPoint[];
+  label: string;
+}
+
+export interface ExistingTree {
+  id: string;
+  x: number;
+  y: number;
+  radius: number;
+  diameter: number;
   label: string;
 }
 
@@ -234,6 +254,8 @@ export interface LayoutFile {
   contextZones: ContextZone[];
   roads?: SetupRoad[];
   ancillaryBuildings?: AncillaryBuilding[];
+  existingBuildings?: ExistingBuilding[];
+  existingTrees?: ExistingTree[];
 }
 
 export type LayoutExport = LayoutFile;

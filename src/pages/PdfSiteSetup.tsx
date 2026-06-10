@@ -8,7 +8,8 @@ import type {
   AncillaryBuildingShape,
   ContextPoint,
   ContextZone,
-  ContextZoneType,
+  ExistingBuilding,
+  ExistingTree,
   PdfBackgroundMeta,
   RoadType,
   SiteData,
@@ -39,7 +40,11 @@ type SelectionMode =
   | "road"
   | "ancillaryRectangle"
   | "ancillaryPolygon"
-  | ContextZoneType;
+  | "greenParkRectangle"
+  | "greenParkPolygon"
+  | "existingBuildingRectangle"
+  | "existingBuildingPolygon"
+  | "existingTree";
 
 export function PdfSiteSetup() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -81,7 +86,26 @@ export function PdfSiteSetup() {
   const [draftAncillaryPolygon, setDraftAncillaryPolygon] = useState<ContextPoint[]>([]);
   const [ancillaryPreviewPoint, setAncillaryPreviewPoint] = useState<ContextPoint>();
   const [pendingAncillaryBuilding, setPendingAncillaryBuilding] = useState<AncillaryBuilding>();
-  const [draftPolygon, setDraftPolygon] = useState<ContextPoint[]>([]);
+  const [showGreenParkShapeDialog, setShowGreenParkShapeDialog] = useState(false);
+  const [greenParkShapeDraft, setGreenParkShapeDraft] = useState<AncillaryBuildingShape>("rectangle");
+  const [draftGreenParkPolygon, setDraftGreenParkPolygon] = useState<ContextPoint[]>([]);
+  const [greenParkPreviewPoint, setGreenParkPreviewPoint] = useState<ContextPoint>();
+  const [pendingGreenPark, setPendingGreenPark] = useState<ContextZone>();
+  const [existingBuildings, setExistingBuildings] = useState<ExistingBuilding[]>([]);
+  const [showExistingBuildingShapeDialog, setShowExistingBuildingShapeDialog] = useState(false);
+  const [existingBuildingShapeDraft, setExistingBuildingShapeDraft] =
+    useState<AncillaryBuildingShape>("rectangle");
+  const [draftExistingBuildingPolygon, setDraftExistingBuildingPolygon] =
+    useState<ContextPoint[]>([]);
+  const [existingBuildingPreviewPoint, setExistingBuildingPreviewPoint] =
+    useState<ContextPoint>();
+  const [pendingExistingBuilding, setPendingExistingBuilding] = useState<ExistingBuilding>();
+  const [existingTrees, setExistingTrees] = useState<ExistingTree[]>([]);
+  const [showTreeSizeDialog, setShowTreeSizeDialog] = useState(false);
+  const [treeDiameterDraft, setTreeDiameterDraft] = useState("3");
+  const [activeTreeDiameter, setActiveTreeDiameter] = useState<number>();
+  const [pendingExistingTree, setPendingExistingTree] = useState<ExistingTree>();
+  const [treeSizeError, setTreeSizeError] = useState("");
   const [selectedZoneId, setSelectedZoneId] = useState<string>();
   const [draggedVertex, setDraggedVertex] = useState<{ zoneId: string; pointIndex: number }>();
   const [siteLength, setSiteLength] = useState(defaultSiteData.scale.length_m);
@@ -189,6 +213,18 @@ export function PdfSiteSetup() {
             y: point.y + offset.y,
           })),
         })));
+        setExistingBuildings((meta.existingBuildings ?? []).map((building) => ({
+          ...building,
+          points: building.points.map((point) => ({
+            x: point.x + offset.x,
+            y: point.y + offset.y,
+          })),
+        })));
+        setExistingTrees((meta.existingTrees ?? []).map((tree) => ({
+          ...tree,
+          x: tree.x + offset.x,
+          y: tree.y + offset.y,
+        })));
         requestAnimationFrame(() => fitBounds(meta.crop));
       };
       image.src = imageSource;
@@ -222,9 +258,13 @@ export function PdfSiteSetup() {
     setSelectedRoadId(undefined);
     setPendingRoad(undefined);
     setAncillaryBuildings([]);
+    setExistingBuildings([]);
+    setExistingTrees([]);
     setDraftAncillaryPolygon([]);
     setPendingAncillaryBuilding(undefined);
-    setDraftPolygon([]);
+    setDraftGreenParkPolygon([]);
+    setGreenParkPreviewPoint(undefined);
+    setPendingGreenPark(undefined);
     setSelectedZoneId(undefined);
 
     try {
@@ -284,9 +324,13 @@ export function PdfSiteSetup() {
         setSelectedRoadId(undefined);
         setPendingRoad(undefined);
         setAncillaryBuildings([]);
+        setExistingBuildings([]);
+        setExistingTrees([]);
         setDraftAncillaryPolygon([]);
         setPendingAncillaryBuilding(undefined);
-        setDraftPolygon([]);
+        setDraftGreenParkPolygon([]);
+        setGreenParkPreviewPoint(undefined);
+        setPendingGreenPark(undefined);
         setSelectedZoneId(undefined);
         requestAnimationFrame(() =>
           fitBounds({ x: 0, y: 0, width: canvas.width, height: canvas.height }),
@@ -310,7 +354,13 @@ export function PdfSiteSetup() {
         showRoadWidthDialog ||
         pendingRoad ||
         showAncillaryShapeDialog ||
-        pendingAncillaryBuilding
+        pendingAncillaryBuilding ||
+        showGreenParkShapeDialog ||
+        pendingGreenPark ||
+        showExistingBuildingShapeDialog ||
+        pendingExistingBuilding ||
+        showTreeSizeDialog ||
+        pendingExistingTree
       ) {
         return;
       }
@@ -321,6 +371,24 @@ export function PdfSiteSetup() {
       ) {
         event.preventDefault();
         setDraftAncillaryPolygon((current) => current.slice(0, -1));
+        return;
+      }
+      if (
+        selectionMode === "greenParkPolygon" &&
+        (event.ctrlKey || event.metaKey) &&
+        event.key.toLowerCase() === "z"
+      ) {
+        event.preventDefault();
+        setDraftGreenParkPolygon((current) => current.slice(0, -1));
+        return;
+      }
+      if (
+        selectionMode === "existingBuildingPolygon" &&
+        (event.ctrlKey || event.metaKey) &&
+        event.key.toLowerCase() === "z"
+      ) {
+        event.preventDefault();
+        setDraftExistingBuildingPolygon((current) => current.slice(0, -1));
         return;
       }
       if (event.code === "Space" && !isFormControl(target)) {
@@ -344,6 +412,18 @@ export function PdfSiteSetup() {
       ) {
         event.preventDefault();
         finishAncillaryPolygon();
+      } else if (
+        selectionMode === "greenParkPolygon" &&
+        event.key === "Escape"
+      ) {
+        event.preventDefault();
+        finishGreenParkPolygon();
+      } else if (
+        selectionMode === "existingBuildingPolygon" &&
+        event.key === "Escape"
+      ) {
+        event.preventDefault();
+        finishExistingBuildingPolygon();
       } else if (
         selectionMode === "boundaryPolygon" &&
         !polygonBoundary.length &&
@@ -388,6 +468,14 @@ export function PdfSiteSetup() {
     showAncillaryShapeDialog,
     pendingAncillaryBuilding,
     draftAncillaryPolygon,
+    showGreenParkShapeDialog,
+    pendingGreenPark,
+    draftGreenParkPolygon,
+    showExistingBuildingShapeDialog,
+    pendingExistingBuilding,
+    draftExistingBuildingPolygon,
+    showTreeSizeDialog,
+    pendingExistingTree,
   ]);
 
   const rotatePage = (degrees: number) => {
@@ -405,9 +493,13 @@ export function PdfSiteSetup() {
     setSelectedRoadId(undefined);
     setPendingRoad(undefined);
     setAncillaryBuildings([]);
+    setExistingBuildings([]);
+    setExistingTrees([]);
     setDraftAncillaryPolygon([]);
     setPendingAncillaryBuilding(undefined);
-    setDraftPolygon([]);
+    setDraftGreenParkPolygon([]);
+    setGreenParkPreviewPoint(undefined);
+    setPendingGreenPark(undefined);
     setSelectedZoneId(undefined);
     setRotation((current) => normalizeRotation(current + degrees));
   };
@@ -448,6 +540,18 @@ export function PdfSiteSetup() {
     ) {
       setAncillaryPreviewPoint(point);
     }
+    if (
+      selectionMode === "greenParkRectangle" ||
+      selectionMode === "greenParkPolygon"
+    ) {
+      setGreenParkPreviewPoint(point);
+    }
+    if (
+      selectionMode === "existingBuildingRectangle" ||
+      selectionMode === "existingBuildingPolygon"
+    ) {
+      setExistingBuildingPreviewPoint(point);
+    }
     if (selectionMode === "boundaryPolygon") {
       if (event.detail >= 2 || polygonBoundary.length) return;
       setDraftBoundaryPolygon((current) => [...current, point]);
@@ -459,9 +563,26 @@ export function PdfSiteSetup() {
       setDraftAncillaryPolygon((current) => [...current, point]);
       return;
     }
-    if (selectionMode === "greenPark") {
+    if (selectionMode === "greenParkPolygon") {
+      if (event.detail >= 2 || pendingGreenPark) return;
       setSelectedZoneId(undefined);
-      setDraftPolygon((current) => [...current, point]);
+      setDraftGreenParkPolygon((current) => [...current, point]);
+      return;
+    }
+    if (selectionMode === "existingBuildingPolygon") {
+      if (event.detail >= 2 || pendingExistingBuilding) return;
+      setDraftExistingBuildingPolygon((current) => [...current, point]);
+      return;
+    }
+    if (selectionMode === "existingTree" && activeTreeDiameter && !pendingExistingTree) {
+      setPendingExistingTree({
+        id: crypto.randomUUID(),
+        x: point.x,
+        y: point.y,
+        radius: getTreeRadiusPixels(activeTreeDiameter),
+        diameter: activeTreeDiameter,
+        label: "Existing Tree",
+      });
       return;
     }
     setDragStart(point);
@@ -477,6 +598,18 @@ export function PdfSiteSetup() {
       selectionMode === "ancillaryPolygon"
     ) {
       setAncillaryPreviewPoint(getPointer(event));
+    }
+    if (
+      selectionMode === "greenParkRectangle" ||
+      selectionMode === "greenParkPolygon"
+    ) {
+      setGreenParkPreviewPoint(getPointer(event));
+    }
+    if (
+      selectionMode === "existingBuildingRectangle" ||
+      selectionMode === "existingBuildingPolygon"
+    ) {
+      setExistingBuildingPreviewPoint(getPointer(event));
     }
     if (draggedVertex) {
       const point = getPointer(event);
@@ -507,6 +640,12 @@ export function PdfSiteSetup() {
     if (selectionMode === "ancillaryRectangle") {
       setAncillaryPreviewPoint(point);
     }
+    if (selectionMode === "greenParkRectangle") {
+      setGreenParkPreviewPoint(point);
+    }
+    if (selectionMode === "existingBuildingRectangle") {
+      setExistingBuildingPreviewPoint(point);
+    }
     const next = normalizeSelection(dragStart, point);
     setDragStart(undefined);
     setDraftSelection(undefined);
@@ -523,8 +662,13 @@ export function PdfSiteSetup() {
         setSelectedRoadId(undefined);
         setPendingRoad(undefined);
         setAncillaryBuildings([]);
+        setExistingBuildings([]);
+        setExistingTrees([]);
         setDraftAncillaryPolygon([]);
         setPendingAncillaryBuilding(undefined);
+        setDraftGreenParkPolygon([]);
+        setGreenParkPreviewPoint(undefined);
+        setPendingGreenPark(undefined);
         setSelectedZoneId(undefined);
         requestAnimationFrame(() => fitBounds(next));
       } else if (selectionMode === "boundaryRectangle") {
@@ -551,22 +695,52 @@ export function PdfSiteSetup() {
           label: "Ancillary Building",
           points: rectangleToPoints(next),
         });
+      } else if (selectionMode === "greenParkRectangle") {
+        setPendingGreenPark({
+          id: crypto.randomUUID(),
+          type: "greenPark",
+          shape: "rectangle",
+          label: "Green Park Area",
+          points: rectangleToPoints(next),
+        });
+      } else if (selectionMode === "existingBuildingRectangle") {
+        setPendingExistingBuilding({
+          id: crypto.randomUUID(),
+          type: "rectangle",
+          label: "Existing Building",
+          points: rectangleToPoints(next),
+        });
       }
     }
   };
 
-  const finishPolygon = () => {
-    if (selectionMode !== "greenPark" || draftPolygon.length < 3) return;
-    const zone: ContextZone = {
+  function finishGreenParkPolygon() {
+    if (selectionMode !== "greenParkPolygon" || draftGreenParkPolygon.length < 3) return;
+    setPendingGreenPark({
       id: crypto.randomUUID(),
       type: "greenPark",
-      points: draftPolygon,
-    };
-    setContextZones((current) => [...current, zone]);
-    setDraftPolygon([]);
-    setDraftBoundaryPolygon([]);
-    setSelectedZoneId(zone.id);
-  };
+      shape: "polygon",
+      label: "Green Park Area",
+      points: draftGreenParkPolygon,
+    });
+    setDraftGreenParkPolygon([]);
+    setGreenParkPreviewPoint(undefined);
+  }
+
+  function finishExistingBuildingPolygon() {
+    if (
+      selectionMode !== "existingBuildingPolygon" ||
+      draftExistingBuildingPolygon.length < 3
+    ) return;
+    setPendingExistingBuilding({
+      id: crypto.randomUUID(),
+      type: "polygon",
+      label: "Existing Building",
+      points: draftExistingBuildingPolygon,
+    });
+    setDraftExistingBuildingPolygon([]);
+    setExistingBuildingPreviewPoint(undefined);
+  }
 
   const finishBoundaryPolygon = () => {
     if (selectionMode !== "boundaryPolygon" || draftBoundaryPolygon.length < 3) {
@@ -590,7 +764,9 @@ export function PdfSiteSetup() {
 
   const changeSelectionMode = (mode: SelectionMode) => {
     setSelectionMode(mode);
-    setDraftPolygon([]);
+    setDraftGreenParkPolygon([]);
+    setGreenParkPreviewPoint(undefined);
+    setPendingGreenPark(undefined);
     setSelectedZoneId(undefined);
     setSelectedRoadId(undefined);
     setPendingRoad(undefined);
@@ -600,7 +776,155 @@ export function PdfSiteSetup() {
     setDraftAncillaryPolygon([]);
     setAncillaryPreviewPoint(undefined);
     setPendingAncillaryBuilding(undefined);
+    setDraftExistingBuildingPolygon([]);
+    setExistingBuildingPreviewPoint(undefined);
+    setPendingExistingBuilding(undefined);
+    setPendingExistingTree(undefined);
   };
+
+  const openGreenParkShapeDialog = () => {
+    setGreenParkShapeDraft("rectangle");
+    setShowGreenParkShapeDialog(true);
+  };
+
+  const continueGreenParkShape = () => {
+    setShowGreenParkShapeDialog(false);
+    changeSelectionMode(
+      greenParkShapeDraft === "rectangle" ? "greenParkRectangle" : "greenParkPolygon",
+    );
+  };
+
+  const confirmPendingGreenPark = () => {
+    if (!pendingGreenPark) return;
+    setContextZones((current) => [...current, pendingGreenPark]);
+    setPendingGreenPark(undefined);
+    setDraftGreenParkPolygon([]);
+    setGreenParkPreviewPoint(undefined);
+  };
+
+  const redrawPendingGreenPark = () => {
+    if (!pendingGreenPark) return;
+    const mode = pendingGreenPark.shape === "rectangle"
+      ? "greenParkRectangle"
+      : "greenParkPolygon";
+    setPendingGreenPark(undefined);
+    setDraftGreenParkPolygon([]);
+    setGreenParkPreviewPoint(undefined);
+    setSelectionMode(mode);
+  };
+
+  const cancelPendingGreenPark = () => {
+    setPendingGreenPark(undefined);
+    setDraftGreenParkPolygon([]);
+    setGreenParkPreviewPoint(undefined);
+    setSelectionMode("crop");
+  };
+
+  const finishGreenParkMode = () => {
+    setPendingGreenPark(undefined);
+    setDraftGreenParkPolygon([]);
+    setGreenParkPreviewPoint(undefined);
+    setDragStart(undefined);
+    setDraftSelection(undefined);
+    setSelectionMode("crop");
+  };
+
+  const openExistingBuildingShapeDialog = () => {
+    setExistingBuildingShapeDraft("rectangle");
+    setShowExistingBuildingShapeDialog(true);
+  };
+
+  const continueExistingBuildingShape = () => {
+    setShowExistingBuildingShapeDialog(false);
+    changeSelectionMode(
+      existingBuildingShapeDraft === "rectangle"
+        ? "existingBuildingRectangle"
+        : "existingBuildingPolygon",
+    );
+  };
+
+  const confirmPendingExistingBuilding = () => {
+    if (!pendingExistingBuilding) return;
+    setExistingBuildings((current) => [...current, pendingExistingBuilding]);
+    setPendingExistingBuilding(undefined);
+    setDraftExistingBuildingPolygon([]);
+    setExistingBuildingPreviewPoint(undefined);
+  };
+
+  const redrawPendingExistingBuilding = () => {
+    if (!pendingExistingBuilding) return;
+    const mode = pendingExistingBuilding.type === "rectangle"
+      ? "existingBuildingRectangle"
+      : "existingBuildingPolygon";
+    setPendingExistingBuilding(undefined);
+    setDraftExistingBuildingPolygon([]);
+    setExistingBuildingPreviewPoint(undefined);
+    setSelectionMode(mode);
+  };
+
+  const cancelPendingExistingBuilding = () => {
+    setPendingExistingBuilding(undefined);
+    setDraftExistingBuildingPolygon([]);
+    setExistingBuildingPreviewPoint(undefined);
+    setSelectionMode("crop");
+  };
+
+  const finishExistingBuildingMode = () => {
+    setPendingExistingBuilding(undefined);
+    setDraftExistingBuildingPolygon([]);
+    setExistingBuildingPreviewPoint(undefined);
+    setDragStart(undefined);
+    setDraftSelection(undefined);
+    setSelectionMode("crop");
+  };
+
+  const openTreeSizeDialog = () => {
+    setTreeDiameterDraft(String(activeTreeDiameter ?? 3));
+    setTreeSizeError("");
+    setShowTreeSizeDialog(true);
+  };
+
+  const applyTreeSize = () => {
+    const diameter = Number(treeDiameterDraft);
+    if (!Number.isFinite(diameter) || diameter <= 0) {
+      setTreeSizeError("Enter a tree diameter greater than 0.");
+      return;
+    }
+    setActiveTreeDiameter(diameter);
+    setShowTreeSizeDialog(false);
+    changeSelectionMode("existingTree");
+  };
+
+  const confirmPendingExistingTree = () => {
+    if (!pendingExistingTree) return;
+    setExistingTrees((current) => [...current, pendingExistingTree]);
+    setPendingExistingTree(undefined);
+  };
+
+  const redrawPendingExistingTree = () => {
+    setPendingExistingTree(undefined);
+    setSelectionMode("existingTree");
+  };
+
+  const cancelPendingExistingTree = () => {
+    setPendingExistingTree(undefined);
+    setSelectionMode("crop");
+  };
+
+  const finishExistingTreeMode = () => {
+    setPendingExistingTree(undefined);
+    setSelectionMode("crop");
+  };
+
+  function getTreeRadiusPixels(diameter: number) {
+    const boundaryWidth = boundarySelection?.width ?? getPointsBounds(polygonBoundary)?.width;
+    const boundaryHeight = boundarySelection?.height ?? getPointsBounds(polygonBoundary)?.height;
+    const pixelsPerMeter = Math.min(
+      boundaryWidth && siteWidth > 0 ? boundaryWidth / siteWidth : 1,
+      boundaryHeight && siteLength > 0 ? boundaryHeight / siteLength : 1,
+    );
+    return Math.max(4, diameter * pixelsPerMeter / 2);
+  }
 
   const openAncillaryShapeDialog = () => {
     setAncillaryShapeDraft("rectangle");
@@ -936,6 +1260,20 @@ export function PdfSiteSetup() {
           y: round(point.y - cropSelection.y),
         })),
       })),
+      existingBuildings: existingBuildings.map((building) => ({
+        ...building,
+        points: building.points.map((point) => ({
+          x: round(point.x - cropSelection.x),
+          y: round(point.y - cropSelection.y),
+        })),
+      })),
+      existingTrees: existingTrees.map((tree) => ({
+        ...tree,
+        x: round(tree.x - cropSelection.x),
+        y: round(tree.y - cropSelection.y),
+        radius: round(tree.radius),
+        diameter: round(tree.diameter),
+      })),
     };
 
     try {
@@ -1070,12 +1408,38 @@ export function PdfSiteSetup() {
                 Select Ancillary Building
               </button>
               <button
-                className={selectionMode === "greenPark" ? "" : "secondaryButton"}
+                className={
+                  selectionMode === "greenParkRectangle" ||
+                  selectionMode === "greenParkPolygon"
+                    ? ""
+                    : "secondaryButton"
+                }
                 type="button"
                 disabled={!cropSelection}
-                onClick={() => changeSelectionMode("greenPark")}
+                onClick={openGreenParkShapeDialog}
               >
                 Select Green Park Area
+              </button>
+              <button
+                className={
+                  selectionMode === "existingBuildingRectangle" ||
+                  selectionMode === "existingBuildingPolygon"
+                    ? ""
+                    : "secondaryButton"
+                }
+                type="button"
+                disabled={!cropSelection}
+                onClick={openExistingBuildingShapeDialog}
+              >
+                Select Existing Building
+              </button>
+              <button
+                className={selectionMode === "existingTree" ? "" : "secondaryButton"}
+                type="button"
+                disabled={!cropSelection}
+                onClick={openTreeSizeDialog}
+              >
+                Select Existing Tree
               </button>
             </div>
             {selectionMode === "boundaryPolygon" ? (
@@ -1128,18 +1492,17 @@ export function PdfSiteSetup() {
               </div>
             ) : null}
             {polygonError ? <p className="errorText">{polygonError}</p> : null}
-            {selectionMode === "greenPark" ? (
-              <div className="polygonActions">
-                <button type="button" disabled={draftPolygon.length < 3} onClick={finishPolygon}>
-                  Finish Polygon
-                </button>
-                <button
-                  className="secondaryButton"
-                  type="button"
-                  disabled={!draftPolygon.length}
-                  onClick={() => setDraftPolygon([])}
-                >
-                  Cancel Drawing
+            {selectionMode === "greenParkRectangle" ||
+            selectionMode === "greenParkPolygon" ? (
+              <div className="ancillaryToolStatus greenParkToolStatus">
+                <p>
+                  <strong>Green Park Area Tool Active</strong>
+                  <span>
+                    {selectionMode === "greenParkRectangle" ? "Rectangle" : "Polygon"} mode
+                  </span>
+                </p>
+                <button className="secondaryButton" type="button" onClick={finishGreenParkMode}>
+                  Finish Green Park Areas
                 </button>
                 <button
                   className="dangerButton"
@@ -1191,6 +1554,45 @@ export function PdfSiteSetup() {
                 <li>Ctrl+Z removes the most recent vertex.</li>
               </ol>
             ) : null}
+            {selectionMode === "greenParkPolygon" && !pendingGreenPark ? (
+              <ol className="drawingInstructions">
+                <li>Click to add vertices.</li>
+                <li>Double-click or press Esc to finish.</li>
+                <li>Ctrl+Z removes the most recent vertex.</li>
+              </ol>
+            ) : null}
+            {selectionMode === "existingBuildingRectangle" ||
+            selectionMode === "existingBuildingPolygon" ? (
+              <div className="ancillaryToolStatus existingBuildingToolStatus">
+                <p>
+                  <strong>Existing Building Tool Active</strong>
+                  <span>
+                    {selectionMode === "existingBuildingRectangle" ? "Rectangle" : "Polygon"} mode
+                  </span>
+                </p>
+                <button className="secondaryButton" type="button" onClick={finishExistingBuildingMode}>
+                  Finish Existing Buildings
+                </button>
+              </div>
+            ) : null}
+            {selectionMode === "existingBuildingPolygon" && !pendingExistingBuilding ? (
+              <ol className="drawingInstructions">
+                <li>Click to add vertices.</li>
+                <li>Double-click or press Esc to finish.</li>
+                <li>Ctrl+Z removes the most recent vertex.</li>
+              </ol>
+            ) : null}
+            {selectionMode === "existingTree" ? (
+              <div className="ancillaryToolStatus treeToolStatus">
+                <p>
+                  <strong>Existing Tree Tool Active</strong>
+                  <span>{activeTreeDiameter ?? 0}m diameter</span>
+                </p>
+                <button className="secondaryButton" type="button" onClick={finishExistingTreeMode}>
+                  Finish Existing Trees
+                </button>
+              </div>
+            ) : null}
             {selectionMode === "boundaryPolygon" ? (
               <ol className="drawingInstructions">
                 <li>Click to add vertices.</li>
@@ -1208,6 +1610,12 @@ export function PdfSiteSetup() {
                       ? "Click the first corner, drag, and release to create a road rectangle."
                     : selectionMode === "ancillaryRectangle"
                       ? "Click the first corner, drag, and release to trace the ancillary building."
+                    : selectionMode === "greenParkRectangle"
+                      ? "Click the first corner, drag, and release to trace the green park area."
+                    : selectionMode === "existingBuildingRectangle"
+                      ? "Click the first corner, drag, and release to trace the existing building."
+                    : selectionMode === "existingTree"
+                      ? "Click the center of an existing tree canopy."
                     : "Click around the area to add polygon points, then finish the polygon. Drag its points to edit."}
               </p>
             )}
@@ -1276,6 +1684,15 @@ export function PdfSiteSetup() {
               } else if (selectionMode === "ancillaryPolygon" && !pendingAncillaryBuilding) {
                 event.preventDefault();
                 finishAncillaryPolygon();
+              } else if (selectionMode === "greenParkPolygon" && !pendingGreenPark) {
+                event.preventDefault();
+                finishGreenParkPolygon();
+              } else if (
+                selectionMode === "existingBuildingPolygon" &&
+                !pendingExistingBuilding
+              ) {
+                event.preventDefault();
+                finishExistingBuildingPolygon();
               }
             }}
             onPointerCancel={() => {
@@ -1312,6 +1729,34 @@ export function PdfSiteSetup() {
                 }}
               />
             ))}
+            {pendingGreenPark ? (
+              <ContextZoneOverlay
+                zone={pendingGreenPark}
+                isSelected={false}
+                isTemporary
+                onSelect={() => undefined}
+                onVertexPointerDown={() => undefined}
+              />
+            ) : null}
+            {existingBuildings.map((building, index) => (
+              <ExistingBuildingOverlay
+                key={building.id}
+                building={building}
+                label={`Existing Building ${index + 1}`}
+              />
+            ))}
+            {pendingExistingBuilding ? (
+              <ExistingBuildingOverlay building={pendingExistingBuilding} isTemporary />
+            ) : null}
+            {existingTrees.map((tree) => (
+              <ExistingTreeOverlay
+                key={tree.id}
+                tree={tree}
+              />
+            ))}
+            {pendingExistingTree ? (
+              <ExistingTreeOverlay tree={pendingExistingTree} isTemporary showDiameter />
+            ) : null}
             {roads.map((road) => (
               <RoadOverlay
                 key={road.id}
@@ -1350,20 +1795,25 @@ export function PdfSiteSetup() {
                 previewPoint={ancillaryPreviewPoint}
               />
             ) : null}
-            {draftPolygon.length ? (
-              <ContextZoneOverlay
-                zone={{ id: "draft", type: selectionMode as ContextZoneType, points: draftPolygon }}
-                isSelected
-                isDraft
-                onSelect={() => undefined}
-                onVertexPointerDown={() => undefined}
+            {draftGreenParkPolygon.length ? (
+              <GreenParkPolygonPreview
+                points={draftGreenParkPolygon}
+                previewPoint={greenParkPreviewPoint}
+              />
+            ) : null}
+            {draftExistingBuildingPolygon.length ? (
+              <ExistingBuildingPolygonPreview
+                points={draftExistingBuildingPolygon}
+                previewPoint={existingBuildingPreviewPoint}
               />
             ) : null}
             {draftSelection && (
               selectionMode === "crop" ||
               selectionMode === "boundaryRectangle" ||
               selectionMode === "road" ||
-              selectionMode === "ancillaryRectangle"
+              selectionMode === "ancillaryRectangle" ||
+              selectionMode === "greenParkRectangle" ||
+              selectionMode === "existingBuildingRectangle"
             ) ? (
               <SelectionOverlay selection={draftSelection} variant={selectionMode} />
             ) : null}
@@ -1555,6 +2005,137 @@ export function PdfSiteSetup() {
           </form>
         </FloatingToolPanel>
       ) : null}
+      {showGreenParkShapeDialog ? (
+        <FloatingToolPanel
+          title="Select Green Park Shape"
+          initialPosition={{ x: 340, y: 126 }}
+          onCancel={() => setShowGreenParkShapeDialog(false)}
+        >
+          <form
+            className="floatingToolForm"
+            onSubmit={(event) => {
+              event.preventDefault();
+              continueGreenParkShape();
+            }}
+          >
+            <label className="floatingRadio">
+              <input
+                autoFocus
+                type="radio"
+                name="greenParkShape"
+                value="rectangle"
+                checked={greenParkShapeDraft === "rectangle"}
+                onChange={() => setGreenParkShapeDraft("rectangle")}
+              />
+              <span>Rectangle</span>
+            </label>
+            <label className="floatingRadio">
+              <input
+                type="radio"
+                name="greenParkShape"
+                value="polygon"
+                checked={greenParkShapeDraft === "polygon"}
+                onChange={() => setGreenParkShapeDraft("polygon")}
+              />
+              <span>Polygon</span>
+            </label>
+            <div className="floatingPanelActions">
+              <button type="submit">Continue</button>
+              <button
+                className="secondaryButton"
+                type="button"
+                onClick={() => setShowGreenParkShapeDialog(false)}
+              >
+                Cancel
+              </button>
+            </div>
+          </form>
+        </FloatingToolPanel>
+      ) : null}
+      {showExistingBuildingShapeDialog ? (
+        <FloatingToolPanel
+          title="Select Existing Building Shape"
+          initialPosition={{ x: 340, y: 126 }}
+          onCancel={() => setShowExistingBuildingShapeDialog(false)}
+        >
+          <form
+            className="floatingToolForm"
+            onSubmit={(event) => {
+              event.preventDefault();
+              continueExistingBuildingShape();
+            }}
+          >
+            <label className="floatingRadio">
+              <input
+                autoFocus
+                type="radio"
+                name="existingBuildingShape"
+                value="rectangle"
+                checked={existingBuildingShapeDraft === "rectangle"}
+                onChange={() => setExistingBuildingShapeDraft("rectangle")}
+              />
+              <span>Rectangle</span>
+            </label>
+            <label className="floatingRadio">
+              <input
+                type="radio"
+                name="existingBuildingShape"
+                value="polygon"
+                checked={existingBuildingShapeDraft === "polygon"}
+                onChange={() => setExistingBuildingShapeDraft("polygon")}
+              />
+              <span>Polygon</span>
+            </label>
+            <div className="floatingPanelActions">
+              <button type="submit">Continue</button>
+              <button
+                className="secondaryButton"
+                type="button"
+                onClick={() => setShowExistingBuildingShapeDialog(false)}
+              >
+                Cancel
+              </button>
+            </div>
+          </form>
+        </FloatingToolPanel>
+      ) : null}
+      {showTreeSizeDialog ? (
+        <FloatingToolPanel
+          title="Tree Size"
+          initialPosition={{ x: 350, y: 140 }}
+          onCancel={() => setShowTreeSizeDialog(false)}
+        >
+          <form
+            className="floatingToolForm"
+            onSubmit={(event) => {
+              event.preventDefault();
+              applyTreeSize();
+            }}
+          >
+            <label>
+              <span>Tree Diameter (m)</span>
+              <input
+                autoFocus
+                type="number"
+                min="0.1"
+                step="0.1"
+                value={treeDiameterDraft}
+                onChange={(event) => {
+                  setTreeDiameterDraft(event.target.value);
+                  setTreeSizeError("");
+                }}
+              />
+            </label>
+            {treeSizeError ? <p className="errorText">{treeSizeError}</p> : null}
+            <div className="floatingPanelActions">
+              <button type="submit">Apply</button>
+              <button className="secondaryButton" type="button" onClick={() => setShowTreeSizeDialog(false)}>
+                Cancel
+              </button>
+            </div>
+          </form>
+        </FloatingToolPanel>
+      ) : null}
       {showRoadWidthDialog ? (
         <FloatingToolPanel
           title="Road Width"
@@ -1630,6 +2211,72 @@ export function PdfSiteSetup() {
                 Redraw
               </button>
               <button className="secondaryButton" type="button" onClick={cancelPendingAncillaryBuilding}>
+                Cancel
+              </button>
+            </div>
+          </div>
+        </FloatingToolPanel>
+      ) : null}
+      {pendingGreenPark ? (
+        <FloatingToolPanel
+          title="Confirm Green Park Area"
+          initialPosition={{ x: 360, y: 150 }}
+          onCancel={cancelPendingGreenPark}
+        >
+          <div className="floatingToolForm">
+            <p className="muted">
+              Review the traced {pendingGreenPark.shape ?? "polygon"} area before saving it.
+            </p>
+            <div className="floatingPanelActions ancillaryConfirmationActions">
+              <button type="button" onClick={confirmPendingGreenPark}>Confirm</button>
+              <button className="secondaryButton" type="button" onClick={redrawPendingGreenPark}>
+                Redraw
+              </button>
+              <button className="secondaryButton" type="button" onClick={cancelPendingGreenPark}>
+                Cancel
+              </button>
+            </div>
+          </div>
+        </FloatingToolPanel>
+      ) : null}
+      {pendingExistingBuilding ? (
+        <FloatingToolPanel
+          title="Confirm Existing Building"
+          initialPosition={{ x: 360, y: 150 }}
+          onCancel={cancelPendingExistingBuilding}
+        >
+          <div className="floatingToolForm">
+            <p className="muted">
+              Review the traced {pendingExistingBuilding.type} footprint before saving it.
+            </p>
+            <div className="floatingPanelActions ancillaryConfirmationActions">
+              <button type="button" onClick={confirmPendingExistingBuilding}>Confirm</button>
+              <button className="secondaryButton" type="button" onClick={redrawPendingExistingBuilding}>
+                Redraw
+              </button>
+              <button className="secondaryButton" type="button" onClick={cancelPendingExistingBuilding}>
+                Cancel
+              </button>
+            </div>
+          </div>
+        </FloatingToolPanel>
+      ) : null}
+      {pendingExistingTree ? (
+        <FloatingToolPanel
+          title="Confirm Existing Tree"
+          initialPosition={{ x: 360, y: 150 }}
+          onCancel={cancelPendingExistingTree}
+        >
+          <div className="floatingToolForm">
+            <p className="muted">
+              Tree diameter: {pendingExistingTree.diameter}m
+            </p>
+            <div className="floatingPanelActions ancillaryConfirmationActions">
+              <button type="button" onClick={confirmPendingExistingTree}>Confirm</button>
+              <button className="secondaryButton" type="button" onClick={redrawPendingExistingTree}>
+                Redraw
+              </button>
+              <button className="secondaryButton" type="button" onClick={cancelPendingExistingTree}>
                 Cancel
               </button>
             </div>
@@ -1871,9 +2518,15 @@ function AncillaryBuildingOverlay({
 
   return (
     <svg className="contextZoneOverlay" width="100%" height="100%" pointerEvents="none">
+      <defs>
+        <pattern id="ancillaryHatch" width="10" height="10" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+          <rect width="10" height="10" fill="rgba(120, 120, 120, 0.35)" />
+          <line x1="0" y1="0" x2="0" y2="10" stroke="rgba(80,80,80,0.38)" strokeWidth="2" />
+        </pattern>
+      </defs>
       <polygon
         points={points}
-        fill="rgba(120, 120, 120, 0.35)"
+        fill="url(#ancillaryHatch)"
         stroke="rgba(80, 80, 80, 1)"
         strokeWidth={3}
         strokeDasharray={isTemporary ? "10 7" : undefined}
@@ -1889,6 +2542,82 @@ function AncillaryBuildingOverlay({
           dominantBaseline="middle"
         >
           {label}
+        </text>
+      ) : null}
+    </svg>
+  );
+}
+
+function ExistingBuildingOverlay({
+  building,
+  label,
+  isTemporary = false,
+}: {
+  building: ExistingBuilding;
+  label?: string;
+  isTemporary?: boolean;
+}) {
+  const points = building.points.map((point) => `${point.x},${point.y}`).join(" ");
+  const center = label ? getPointsCenter(building.points) : undefined;
+  return (
+    <svg className="contextZoneOverlay" width="100%" height="100%" pointerEvents="none">
+      <polygon
+        points={points}
+        fill="rgba(80,80,80,0.35)"
+        stroke="rgba(50,50,50,1)"
+        strokeWidth={3}
+        strokeDasharray={isTemporary ? "10 7" : undefined}
+      />
+      {label && center ? (
+        <text
+          x={center.x}
+          y={center.y}
+          fill="#262626"
+          fontSize={14}
+          fontWeight={700}
+          textAnchor="middle"
+          dominantBaseline="middle"
+        >
+          {label}
+        </text>
+      ) : null}
+    </svg>
+  );
+}
+
+function ExistingTreeOverlay({
+  tree,
+  label,
+  isTemporary = false,
+  showDiameter = false,
+}: {
+  tree: ExistingTree;
+  label?: string;
+  isTemporary?: boolean;
+  showDiameter?: boolean;
+}) {
+  return (
+    <svg className="contextZoneOverlay" width="100%" height="100%" pointerEvents="none">
+      <circle
+        cx={tree.x}
+        cy={tree.y}
+        r={tree.radius}
+        fill="rgba(34,197,94,0.3)"
+        stroke="#166534"
+        strokeWidth={3}
+        strokeDasharray={isTemporary ? "8 6" : undefined}
+      />
+      <circle cx={tree.x - tree.radius * 0.22} cy={tree.y - tree.radius * 0.1} r={tree.radius * 0.48} fill="rgba(74,222,128,0.34)" />
+      <circle cx={tree.x + tree.radius * 0.22} cy={tree.y + tree.radius * 0.08} r={tree.radius * 0.42} fill="rgba(22,163,74,0.3)" />
+      <circle cx={tree.x} cy={tree.y} r={Math.max(2, tree.radius * 0.1)} fill="#166534" />
+      {label ? (
+        <text x={tree.x} y={tree.y + tree.radius + 16} fill="#166534" fontSize={13} fontWeight={700} textAnchor="middle">
+          {label}
+        </text>
+      ) : null}
+      {showDiameter ? (
+        <text x={tree.x} y={tree.y} fill="#14532d" fontSize={13} fontWeight={700} textAnchor="middle" dominantBaseline="middle">
+          {tree.diameter}m
         </text>
       ) : null}
     </svg>
@@ -1931,6 +2660,65 @@ function AncillaryPolygonPreview({
         <g key={`${point.x}-${point.y}-${index}`}>
           <circle cx={point.x} cy={point.y} r={6} fill="#ffffff" stroke="#505050" strokeWidth={3} />
           <text x={point.x + 9} y={point.y - 9} fill="#374151" fontSize={14} fontWeight={700}>
+            {getVertexLabel(index)}
+          </text>
+        </g>
+      ))}
+    </svg>
+  );
+}
+
+function GreenParkPolygonPreview({
+  points,
+  previewPoint,
+}: {
+  points: ContextPoint[];
+  previewPoint?: ContextPoint;
+}) {
+  const previewPoints = previewPoint ? [...points, previewPoint] : points;
+
+  return (
+    <svg className="contextZoneOverlay" width="100%" height="100%" pointerEvents="none">
+      <polyline
+        points={previewPoints.map((point) => `${point.x},${point.y}`).join(" ")}
+        fill={points.length >= 3 ? "rgba(134, 239, 172, 0.28)" : "none"}
+        stroke="#16a34a"
+        strokeWidth={3}
+        strokeDasharray="10 7"
+      />
+      {points.map((point, index) => (
+        <g key={`${point.x}-${point.y}-${index}`}>
+          <circle cx={point.x} cy={point.y} r={6} fill="#ffffff" stroke="#16a34a" strokeWidth={3} />
+          <text x={point.x + 9} y={point.y - 9} fill="#166534" fontSize={14} fontWeight={700}>
+            {getVertexLabel(index)}
+          </text>
+        </g>
+      ))}
+    </svg>
+  );
+}
+
+function ExistingBuildingPolygonPreview({
+  points,
+  previewPoint,
+}: {
+  points: ContextPoint[];
+  previewPoint?: ContextPoint;
+}) {
+  const previewPoints = previewPoint ? [...points, previewPoint] : points;
+  return (
+    <svg className="contextZoneOverlay" width="100%" height="100%" pointerEvents="none">
+      <polyline
+        points={previewPoints.map((point) => `${point.x},${point.y}`).join(" ")}
+        fill={points.length >= 3 ? "rgba(80,80,80,0.28)" : "none"}
+        stroke="rgba(50,50,50,1)"
+        strokeWidth={3}
+        strokeDasharray="10 7"
+      />
+      {points.map((point, index) => (
+        <g key={`${point.x}-${point.y}-${index}`}>
+          <circle cx={point.x} cy={point.y} r={6} fill="#ffffff" stroke="#323232" strokeWidth={3} />
+          <text x={point.x + 9} y={point.y - 9} fill="#262626" fontSize={14} fontWeight={700}>
             {getVertexLabel(index)}
           </text>
         </g>
@@ -1994,12 +2782,14 @@ function ContextZoneOverlay({
   zone,
   isSelected,
   isDraft = false,
+  isTemporary = false,
   onSelect,
   onVertexPointerDown,
 }: {
   zone: ContextZone;
   isSelected: boolean;
   isDraft?: boolean;
+  isTemporary?: boolean;
   onSelect: () => void;
   onVertexPointerDown: (pointIndex: number, event: React.PointerEvent<SVGCircleElement>) => void;
 }) {
@@ -2007,13 +2797,19 @@ function ContextZoneOverlay({
 
   return (
     <svg className="contextZoneOverlay" width="100%" height="100%">
+      <defs>
+        <pattern id="greenParkHatch" width="12" height="12" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+          <rect width="12" height="12" fill="rgba(134,239,172,0.25)" />
+          <line x1="0" y1="0" x2="0" y2="12" stroke="rgba(22,163,74,0.42)" strokeWidth="2" />
+        </pattern>
+      </defs>
       {zone.points.length >= 3 ? (
         <polygon
           points={points}
-          fill="rgba(134, 239, 172, 0.36)"
+          fill="url(#greenParkHatch)"
           stroke={isSelected ? "#f97316" : "#16a34a"}
           strokeWidth={isSelected ? 3 : 2}
-          strokeDasharray={isDraft ? "8 6" : undefined}
+          strokeDasharray={isDraft || isTemporary ? "8 6" : undefined}
           onPointerDown={(event) => {
             event.stopPropagation();
             onSelect();
