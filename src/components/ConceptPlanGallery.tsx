@@ -1,4 +1,9 @@
-import type { ConceptPlanExport } from "../types/layout";
+import { useEffect, useState } from "react";
+import { conceptRenderName } from "../services/aiConceptRender";
+import type {
+  ConceptPlanExport,
+  ConceptPlanRenderedVersion,
+} from "../types/layout";
 
 interface ConceptPlanGalleryProps {
   exports: ConceptPlanExport[];
@@ -8,6 +13,7 @@ interface ConceptPlanGalleryProps {
   onPreview: (item?: ConceptPlanExport) => void;
   onRename: (item: ConceptPlanExport) => void;
   onDelete: (item: ConceptPlanExport) => void;
+  onRender: (item: ConceptPlanExport) => Promise<ConceptPlanRenderedVersion>;
 }
 
 export function ConceptPlanGallery({
@@ -18,7 +24,37 @@ export function ConceptPlanGallery({
   onPreview,
   onRename,
   onDelete,
+  onRender,
 }: ConceptPlanGalleryProps) {
+  const [selectedRenderId, setSelectedRenderId] = useState<string>();
+  const [isRendering, setIsRendering] = useState(false);
+  const [renderError, setRenderError] = useState("");
+
+  useEffect(() => {
+    setSelectedRenderId(preview?.renderedVersions?.[0]?.id);
+    setRenderError("");
+  }, [preview?.id, preview?.renderedVersions]);
+
+  const selectedRender = preview?.renderedVersions?.find(
+    (item) => item.id === selectedRenderId,
+  );
+
+  const renderPreview = async () => {
+    if (!preview || isRendering) return;
+    setIsRendering(true);
+    setRenderError("");
+    try {
+      const rendered = await onRender(preview);
+      setSelectedRenderId(rendered.id);
+    } catch (error) {
+      setRenderError(
+        error instanceof Error ? error.message : "Unable to render the concept plan.",
+      );
+    } finally {
+      setIsRendering(false);
+    }
+  };
+
   return (
     <>
       {isOpen ? (
@@ -49,6 +85,9 @@ export function ConceptPlanGallery({
                     <strong>{item.name}</strong>
                     <span>{item.layoutName} - Export {item.exportNumber}</span>
                     <time dateTime={item.exportedAt}>{formatExportDate(item.exportedAt)}</time>
+                    {item.renderedVersions?.length ? (
+                      <span>{item.renderedVersions.length} AI rendered</span>
+                    ) : null}
                   </div>
                   <div className="conceptGalleryActions">
                     <button className="secondaryButton compactButton" type="button" onClick={() => onPreview(item)}>
@@ -86,12 +125,50 @@ export function ConceptPlanGallery({
                 <h2 id="concept-preview-title">{preview.name}</h2>
                 <p>{preview.layoutName} - Export {preview.exportNumber} - {formatExportDate(preview.exportedAt)}</p>
               </div>
-              <button className="secondaryButton compactButton" type="button" onClick={() => onPreview()}>
-                Close
-              </button>
+              <div className="conceptPreviewActions">
+                <button type="button" disabled={isRendering} onClick={renderPreview}>
+                  {isRendering ? "Rendering..." : "Render"}
+                </button>
+                <button className="secondaryButton compactButton" type="button" onClick={() => onPreview()}>
+                  Close
+                </button>
+              </div>
             </div>
-            <div className="conceptPreviewImage">
-              <img src={preview.previewDataUrl} alt={`${preview.name} concept site plan`} />
+            {renderError ? <p className="conceptRenderError">{renderError}</p> : null}
+            {preview.renderedVersions?.length ? (
+              <div className="conceptRenderPicker">
+                <button
+                  className={!selectedRender ? "active" : ""}
+                  type="button"
+                  onClick={() => setSelectedRenderId(undefined)}
+                >
+                  Original only
+                </button>
+                {preview.renderedVersions.map((item, index) => (
+                  <button
+                    className={selectedRenderId === item.id ? "active" : ""}
+                    type="button"
+                    key={item.id}
+                    onClick={() => setSelectedRenderId(item.id)}
+                  >
+                    {conceptRenderName} {preview.renderedVersions!.length - index}
+                  </button>
+                ))}
+              </div>
+            ) : null}
+            <div className={`conceptPreviewImage ${selectedRender ? "comparison" : ""}`}>
+              <figure>
+                <figcaption>Original Export</figcaption>
+                <img src={preview.previewDataUrl} alt={`${preview.name} original concept site plan`} />
+              </figure>
+              {selectedRender ? (
+                <figure>
+                  <figcaption>
+                    Rendered Version - {conceptRenderName}
+                  </figcaption>
+                  <img src={selectedRender.previewDataUrl} alt={`${preview.name} AI rendered concept site plan`} />
+                </figure>
+              ) : null}
             </div>
           </section>
         </div>

@@ -1,4 +1,7 @@
-import type { ConceptPlanExport } from "../types/layout";
+import type {
+  ConceptPlanExport,
+  ConceptPlanRenderedVersion,
+} from "../types/layout";
 
 const storageKey = "conceptPlanGallery.v1";
 const activeProjectIdKey = "conceptPlanGallery.activeProjectId";
@@ -45,6 +48,26 @@ export function updateConceptPlanExport(projectId: string, exportId: string, nam
   writeAllExports(
     readAllExports().map((item) =>
       item.projectId === projectId && item.id === exportId ? { ...item, name: normalizedName } : item,
+    ),
+  );
+}
+
+export function addConceptPlanRenderedVersion(
+  projectId: string,
+  exportId: string,
+  version: ConceptPlanRenderedVersion,
+) {
+  writeAllExports(
+    readAllExports().map((item) =>
+      item.projectId === projectId && item.id === exportId
+        ? {
+            ...item,
+            renderedVersions: [
+              version,
+              ...(item.renderedVersions ?? []).filter((current) => current.id !== version.id),
+            ],
+          }
+        : item,
     ),
   );
 }
@@ -100,7 +123,29 @@ function readExport(value: unknown): ConceptPlanExport[] {
     previewDataUrl: value.previewDataUrl,
     thumbnailDataUrl: value.thumbnailDataUrl,
     favorite: value.favorite === true,
+    renderedVersions: readRenderedVersions(value.renderedVersions),
   }];
+}
+
+function readRenderedVersions(value: unknown): ConceptPlanRenderedVersion[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((item) => {
+    if (
+      !isRecord(item) ||
+      typeof item.id !== "string" ||
+      typeof item.createdAt !== "string" ||
+      typeof item.previewDataUrl !== "string" ||
+      typeof item.thumbnailDataUrl !== "string"
+    ) {
+      return [];
+    }
+    return [{
+      id: item.id,
+      createdAt: item.createdAt,
+      previewDataUrl: item.previewDataUrl,
+      thumbnailDataUrl: item.thumbnailDataUrl,
+    }];
+  });
 }
 
 function writeAllExports(exports: ConceptPlanExport[]) {

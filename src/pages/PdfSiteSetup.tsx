@@ -46,9 +46,56 @@ type SelectionMode =
   | "existingBuildingPolygon"
   | "existingTree";
 
-function getSelectionStepClass(isActive: boolean, isCompleted: boolean) {
-  if (isActive) return "selectionStep selectionStep--active";
-  if (isCompleted) return "selectionStep selectionStep--completed";
+type SelectionStep =
+  | "crop"
+  | "boundary"
+  | "road"
+  | "ancillaryBuilding"
+  | "greenPark"
+  | "existingBuilding"
+  | "existingTree";
+
+type SelectionStepStatus = "notStarted" | "active" | "completed";
+type SelectionStepStatuses = Record<SelectionStep, SelectionStepStatus>;
+
+const selectionSteps: SelectionStep[] = [
+  "crop",
+  "boundary",
+  "road",
+  "ancillaryBuilding",
+  "greenPark",
+  "existingBuilding",
+  "existingTree",
+];
+
+function createSelectionStepStatuses(
+  activeStep: SelectionStep = "crop",
+  completedSteps: SelectionStep[] = [],
+): SelectionStepStatuses {
+  return Object.fromEntries(
+    selectionSteps.map((step) => [
+      step,
+      step === activeStep ? "active" : completedSteps.includes(step) ? "completed" : "notStarted",
+    ]),
+  ) as SelectionStepStatuses;
+}
+
+function activateSelectionStep(
+  current: SelectionStepStatuses,
+  nextActiveStep: SelectionStep,
+): SelectionStepStatuses {
+  return Object.fromEntries(
+    selectionSteps.map((step) => {
+      if (step === nextActiveStep) return [step, "active"];
+      if (current[step] === "active") return [step, "completed"];
+      return [step, current[step]];
+    }),
+  ) as SelectionStepStatuses;
+}
+
+function getSelectionStepClass(status: SelectionStepStatus) {
+  if (status === "active") return "selectionStep selectionStep--active";
+  if (status === "completed") return "selectionStep selectionStep--completed";
   return "selectionStep";
 }
 
@@ -63,6 +110,9 @@ export function PdfSiteSetup() {
   const [rotation, setRotation] = useState(0);
   const [renderSize, setRenderSize] = useState({ width: 0, height: 0 });
   const [selectionMode, setSelectionMode] = useState<SelectionMode>("crop");
+  const [selectionStepStatuses, setSelectionStepStatuses] = useState<SelectionStepStatuses>(
+    () => createSelectionStepStatuses(),
+  );
   const [cropSelection, setCropSelection] = useState<SelectionRect>();
   const [boundarySelection, setBoundarySelection] = useState<SelectionRect>();
   const [polygonBoundary, setPolygonBoundary] = useState<ContextPoint[]>([]);
@@ -84,6 +134,8 @@ export function PdfSiteSetup() {
   const [roadWidthDraft, setRoadWidthDraft] = useState("12");
   const [activeRoadType, setActiveRoadType] = useState<RoadType>();
   const [activeRoadWidth, setActiveRoadWidth] = useState<number>();
+  const [draftRoadPoints, setDraftRoadPoints] = useState<ContextPoint[]>([]);
+  const [roadPreviewPoint, setRoadPreviewPoint] = useState<ContextPoint>();
   const [pendingRoad, setPendingRoad] = useState<SetupRoad>();
   const [roadError, setRoadError] = useState("");
   const [ancillaryBuildings, setAncillaryBuildings] = useState<AncillaryBuilding[]>([]);
@@ -209,8 +261,10 @@ export function PdfSiteSetup() {
         );
         setRoads((meta.roads ?? []).map((road) => ({
           ...road,
-          x: road.x + offset.x,
-          y: road.y + offset.y,
+          points: getRoadPoints(road).map((point) => ({
+            x: point.x + offset.x,
+            y: point.y + offset.y,
+          })),
         })));
         setAncillaryBuildings((meta.ancillaryBuildings ?? []).map((building) => ({
           ...building,
@@ -231,6 +285,22 @@ export function PdfSiteSetup() {
           x: tree.x + offset.x,
           y: tree.y + offset.y,
         })));
+        setSelectionStepStatuses(
+          createSelectionStepStatuses("crop", [
+            "boundary",
+            ...((meta.roads?.length ?? 0) > 0 ? ["road" as const] : []),
+            ...((meta.ancillaryBuildings?.length ?? 0) > 0
+              ? ["ancillaryBuilding" as const]
+              : []),
+            ...((meta.contextZones ?? []).some((zone) => zone.type === "greenPark")
+              ? ["greenPark" as const]
+              : []),
+            ...((meta.existingBuildings?.length ?? 0) > 0
+              ? ["existingBuilding" as const]
+              : []),
+            ...((meta.existingTrees?.length ?? 0) > 0 ? ["existingTree" as const] : []),
+          ]),
+        );
         requestAnimationFrame(() => fitBounds(meta.crop));
       };
       image.src = imageSource;
@@ -258,10 +328,13 @@ export function PdfSiteSetup() {
     setEdgeLengthDrafts([]);
     setDraftSelection(undefined);
     setSelectionMode("crop");
+    setSelectionStepStatuses(createSelectionStepStatuses());
     setSiteShape("rectangle");
     setContextZones([]);
     setRoads([]);
     setSelectedRoadId(undefined);
+    setDraftRoadPoints([]);
+    setRoadPreviewPoint(undefined);
     setPendingRoad(undefined);
     setAncillaryBuildings([]);
     setExistingBuildings([]);
@@ -324,10 +397,13 @@ export function PdfSiteSetup() {
         setBoundaryPreviewPoint(undefined);
         setEdgeLengthDrafts([]);
         setSelectionMode("crop");
+        setSelectionStepStatuses(createSelectionStepStatuses());
         setSiteShape("rectangle");
         setContextZones([]);
         setRoads([]);
         setSelectedRoadId(undefined);
+        setDraftRoadPoints([]);
+        setRoadPreviewPoint(undefined);
         setPendingRoad(undefined);
         setAncillaryBuildings([]);
         setExistingBuildings([]);
@@ -368,6 +444,15 @@ export function PdfSiteSetup() {
         showTreeSizeDialog ||
         pendingExistingTree
       ) {
+        return;
+      }
+      if (
+        selectionMode === "road" &&
+        (event.ctrlKey || event.metaKey) &&
+        event.key.toLowerCase() === "z"
+      ) {
+        event.preventDefault();
+        setDraftRoadPoints((current) => current.slice(0, -1));
         return;
       }
       if (
@@ -412,6 +497,9 @@ export function PdfSiteSetup() {
       if (event.key.toLowerCase() === "f") {
         event.preventDefault();
         fitSite();
+      } else if (selectionMode === "road" && event.key === "Escape") {
+        event.preventDefault();
+        finishRoadPolyline();
       } else if (
         selectionMode === "ancillaryPolygon" &&
         event.key === "Escape"
@@ -482,6 +570,9 @@ export function PdfSiteSetup() {
     draftExistingBuildingPolygon,
     showTreeSizeDialog,
     pendingExistingTree,
+    draftRoadPoints,
+    activeRoadType,
+    activeRoadWidth,
   ]);
 
   const rotatePage = (degrees: number) => {
@@ -493,10 +584,13 @@ export function PdfSiteSetup() {
     setEdgeLengthDrafts([]);
     setDraftSelection(undefined);
     setSelectionMode("crop");
+    setSelectionStepStatuses(createSelectionStepStatuses());
     setSiteShape("rectangle");
     setContextZones([]);
     setRoads([]);
     setSelectedRoadId(undefined);
+    setDraftRoadPoints([]);
+    setRoadPreviewPoint(undefined);
     setPendingRoad(undefined);
     setAncillaryBuildings([]);
     setExistingBuildings([]);
@@ -564,6 +658,19 @@ export function PdfSiteSetup() {
       setPolygonError("");
       return;
     }
+    if (selectionMode === "road") {
+      if (event.detail >= 2 || pendingRoad || !activeRoadType || !activeRoadWidth) return;
+      setSelectedRoadId(undefined);
+      setDraftRoadPoints((current) => {
+        const previous = current[current.length - 1];
+        if (previous && Math.hypot(point.x - previous.x, point.y - previous.y) < 1) {
+          return current;
+        }
+        return [...current, point];
+      });
+      setRoadPreviewPoint(point);
+      return;
+    }
     if (selectionMode === "ancillaryPolygon") {
       if (event.detail >= 2 || pendingAncillaryBuilding) return;
       setDraftAncillaryPolygon((current) => [...current, point]);
@@ -616,6 +723,9 @@ export function PdfSiteSetup() {
       selectionMode === "existingBuildingPolygon"
     ) {
       setExistingBuildingPreviewPoint(getPointer(event));
+    }
+    if (selectionMode === "road" && draftRoadPoints.length) {
+      setRoadPreviewPoint(getPointer(event));
     }
     if (draggedVertex) {
       const point = getPointer(event);
@@ -683,17 +793,6 @@ export function PdfSiteSetup() {
         setSiteWidthDraft(String(siteWidth));
         setDimensionsError("");
         setShowDimensionsDialog(true);
-      } else if (selectionMode === "road" && activeRoadType && activeRoadWidth) {
-        const road: SetupRoad = {
-          id: crypto.randomUUID(),
-          type: activeRoadType,
-          width: activeRoadWidth,
-          x: next.x,
-          y: next.y,
-          rectangleWidth: next.width,
-          rectangleHeight: next.height,
-        };
-        setPendingRoad(road);
       } else if (selectionMode === "ancillaryRectangle") {
         setPendingAncillaryBuilding({
           id: crypto.randomUUID(),
@@ -776,6 +875,10 @@ export function PdfSiteSetup() {
     setSelectedZoneId(undefined);
     setSelectedRoadId(undefined);
     setPendingRoad(undefined);
+    if (mode !== "road") {
+      setDraftRoadPoints([]);
+      setRoadPreviewPoint(undefined);
+    }
     setDragStart(undefined);
     setDraftSelection(undefined);
     setBoundaryPreviewPoint(undefined);
@@ -788,7 +891,12 @@ export function PdfSiteSetup() {
     setPendingExistingTree(undefined);
   };
 
+  const selectStep = (step: SelectionStep) => {
+    setSelectionStepStatuses((current) => activateSelectionStep(current, step));
+  };
+
   const openGreenParkShapeDialog = () => {
+    selectStep("greenPark");
     setGreenParkShapeDraft("rectangle");
     setShowGreenParkShapeDialog(true);
   };
@@ -836,6 +944,7 @@ export function PdfSiteSetup() {
   };
 
   const openExistingBuildingShapeDialog = () => {
+    selectStep("existingBuilding");
     setExistingBuildingShapeDraft("rectangle");
     setShowExistingBuildingShapeDialog(true);
   };
@@ -885,6 +994,7 @@ export function PdfSiteSetup() {
   };
 
   const openTreeSizeDialog = () => {
+    selectStep("existingTree");
     setTreeDiameterDraft(String(activeTreeDiameter ?? 3));
     setTreeSizeError("");
     setShowTreeSizeDialog(true);
@@ -923,16 +1033,26 @@ export function PdfSiteSetup() {
   };
 
   function getTreeRadiusPixels(diameter: number) {
+    return Math.max(4, diameter * getSetupPixelsPerMeter() / 2);
+  }
+
+  function getRoadWidthPixels(width: number) {
+    return Math.max(2, width * getSetupPixelsPerMeter());
+  }
+
+  function getSetupPixelsPerMeter() {
     const boundaryWidth = boundarySelection?.width ?? getPointsBounds(polygonBoundary)?.width;
     const boundaryHeight = boundarySelection?.height ?? getPointsBounds(polygonBoundary)?.height;
-    const pixelsPerMeter = Math.min(
-      boundaryWidth && siteWidth > 0 ? boundaryWidth / siteWidth : 1,
-      boundaryHeight && siteLength > 0 ? boundaryHeight / siteLength : 1,
+    const effectiveWidth = boundaryWidth ?? cropSelection?.width;
+    const effectiveHeight = boundaryHeight ?? cropSelection?.height;
+    return Math.min(
+      effectiveWidth && siteWidth > 0 ? effectiveWidth / siteWidth : 1,
+      effectiveHeight && siteLength > 0 ? effectiveHeight / siteLength : 1,
     );
-    return Math.max(4, diameter * pixelsPerMeter / 2);
   }
 
   const openAncillaryShapeDialog = () => {
+    selectStep("ancillaryBuilding");
     setAncillaryShapeDraft("rectangle");
     setShowAncillaryShapeDialog(true);
   };
@@ -992,6 +1112,7 @@ export function PdfSiteSetup() {
   };
 
   const openRoadTypeDialog = () => {
+    selectStep("road");
     setRoadTypeDraft(activeRoadType ?? "primary");
     setRoadError("");
     setShowRoadTypeDialog(true);
@@ -1021,6 +1142,25 @@ export function PdfSiteSetup() {
     changeSelectionMode("road");
   };
 
+  function finishRoadPolyline() {
+    if (selectionMode !== "road") {
+      return;
+    }
+    if (draftRoadPoints.length < 2 || !activeRoadType || !activeRoadWidth) {
+      setDraftRoadPoints([]);
+      setRoadPreviewPoint(undefined);
+      return;
+    }
+    setPendingRoad({
+      id: crypto.randomUUID(),
+      type: activeRoadType,
+      width: activeRoadWidth,
+      points: draftRoadPoints,
+    });
+    setDraftRoadPoints([]);
+    setRoadPreviewPoint(undefined);
+  }
+
   const deleteSelectedRoad = () => {
     if (!selectedRoadId) return;
     setRoads((current) => current.filter((road) => road.id !== selectedRoadId));
@@ -1032,7 +1172,10 @@ export function PdfSiteSetup() {
     setRoads((current) => [...current, pendingRoad]);
     setSelectedRoadId(pendingRoad.id);
     setPendingRoad(undefined);
+    setDraftRoadPoints([]);
+    setRoadPreviewPoint(undefined);
     setSelectionMode("crop");
+    selectStep("crop");
     setActiveRoadType(undefined);
     setActiveRoadWidth(undefined);
   };
@@ -1040,7 +1183,10 @@ export function PdfSiteSetup() {
   const cancelPendingRoad = () => {
     setPendingRoad(undefined);
     setSelectedRoadId(undefined);
+    setDraftRoadPoints([]);
+    setRoadPreviewPoint(undefined);
     setSelectionMode("crop");
+    selectStep("crop");
     setActiveRoadType(undefined);
     setActiveRoadWidth(undefined);
   };
@@ -1254,10 +1400,14 @@ export function PdfSiteSetup() {
       })),
       roads: roads.map((road) => ({
         ...road,
-        x: round(road.x - cropSelection.x),
-        y: round(road.y - cropSelection.y),
-        rectangleWidth: round(road.rectangleWidth),
-        rectangleHeight: round(road.rectangleHeight),
+        points: getRoadPoints(road).map((point) => ({
+          x: round(point.x - cropSelection.x),
+          y: round(point.y - cropSelection.y),
+        })),
+        x: undefined,
+        y: undefined,
+        rectangleWidth: undefined,
+        rectangleHeight: undefined,
       })),
       ancillaryBuildings: ancillaryBuildings.map((building) => ({
         ...building,
@@ -1292,17 +1442,6 @@ export function PdfSiteSetup() {
       setError("The PDF page is too large to save. Try a smaller PDF page or lower-resolution source file.");
     }
   };
-
-  const boundaryModeActive =
-    selectionMode === "boundaryRectangle" || selectionMode === "boundaryPolygon";
-  const ancillaryModeActive =
-    selectionMode === "ancillaryRectangle" || selectionMode === "ancillaryPolygon";
-  const greenParkModeActive =
-    selectionMode === "greenParkRectangle" || selectionMode === "greenParkPolygon";
-  const existingBuildingModeActive =
-    selectionMode === "existingBuildingRectangle" ||
-    selectionMode === "existingBuildingPolygon";
-  const boundaryCompleted = Boolean(boundarySelection || polygonBoundary.length >= 3);
 
   return (
     <main className="setupPage">
@@ -1382,18 +1521,22 @@ export function PdfSiteSetup() {
             <p className="eyebrow">Selection Mode</p>
             <div className="selectionModeControls">
               <button
-                className={getSelectionStepClass(selectionMode === "crop", Boolean(cropSelection))}
+                className={getSelectionStepClass(selectionStepStatuses.crop)}
                 type="button"
                 disabled={!pdfDocument}
-                onClick={() => changeSelectionMode("crop")}
+                onClick={() => {
+                  selectStep("crop");
+                  changeSelectionMode("crop");
+                }}
               >
                 Crop Site Image
               </button>
               <button
-                className={getSelectionStepClass(boundaryModeActive, boundaryCompleted)}
+                className={getSelectionStepClass(selectionStepStatuses.boundary)}
                 type="button"
                 disabled={!cropSelection}
                 onClick={() => {
+                  selectStep("boundary");
                   setShapeDraft(siteShape);
                   setShowShapeDialog(true);
                 }}
@@ -1401,7 +1544,7 @@ export function PdfSiteSetup() {
                 Select Site Boundary
               </button>
               <button
-                className={getSelectionStepClass(selectionMode === "road", roads.length > 0)}
+                className={getSelectionStepClass(selectionStepStatuses.road)}
                 type="button"
                 disabled={!cropSelection}
                 onClick={openRoadTypeDialog}
@@ -1409,7 +1552,7 @@ export function PdfSiteSetup() {
                 Select Road
               </button>
               <button
-                className={getSelectionStepClass(ancillaryModeActive, ancillaryBuildings.length > 0)}
+                className={getSelectionStepClass(selectionStepStatuses.ancillaryBuilding)}
                 type="button"
                 disabled={!cropSelection}
                 onClick={openAncillaryShapeDialog}
@@ -1417,10 +1560,7 @@ export function PdfSiteSetup() {
                 Select Ancillary Building
               </button>
               <button
-                className={getSelectionStepClass(
-                  greenParkModeActive,
-                  contextZones.some((zone) => zone.type === "greenPark"),
-                )}
+                className={getSelectionStepClass(selectionStepStatuses.greenPark)}
                 type="button"
                 disabled={!cropSelection}
                 onClick={openGreenParkShapeDialog}
@@ -1428,10 +1568,7 @@ export function PdfSiteSetup() {
                 Select Green Park Area
               </button>
               <button
-                className={getSelectionStepClass(
-                  existingBuildingModeActive,
-                  existingBuildings.length > 0,
-                )}
+                className={getSelectionStepClass(selectionStepStatuses.existingBuilding)}
                 type="button"
                 disabled={!cropSelection}
                 onClick={openExistingBuildingShapeDialog}
@@ -1439,10 +1576,7 @@ export function PdfSiteSetup() {
                 Select Existing Building
               </button>
               <button
-                className={getSelectionStepClass(
-                  selectionMode === "existingTree",
-                  existingTrees.length > 0,
-                )}
+                className={getSelectionStepClass(selectionStepStatuses.existingTree)}
                 type="button"
                 disabled={!cropSelection}
                 onClick={openTreeSizeDialog}
@@ -1527,6 +1661,12 @@ export function PdfSiteSetup() {
                 <p className="muted">
                   {activeRoadType ? getRoadTypeLabel(activeRoadType) : "Road"} ({activeRoadWidth}m)
                 </p>
+                <ol className="drawingInstructions">
+                  <li>Click to add centerline vertices.</li>
+                  <li>Move the pointer to preview the next segment.</li>
+                  <li>Double-click or press Esc to finish.</li>
+                  <li>Ctrl+Z removes the most recent vertex.</li>
+                </ol>
                 <button
                   className="dangerButton"
                   type="button"
@@ -1615,7 +1755,7 @@ export function PdfSiteSetup() {
                   : selectionMode === "boundaryRectangle"
                     ? "Click the first corner, drag, and release to finish the rectangle."
                     : selectionMode === "road"
-                      ? "Click the first corner, drag, and release to create a road rectangle."
+                      ? "Trace the road centerline at any angle. Width stays constant along every segment."
                     : selectionMode === "ancillaryRectangle"
                       ? "Click the first corner, drag, and release to trace the ancillary building."
                     : selectionMode === "greenParkRectangle"
@@ -1692,6 +1832,9 @@ export function PdfSiteSetup() {
               } else if (selectionMode === "ancillaryPolygon" && !pendingAncillaryBuilding) {
                 event.preventDefault();
                 finishAncillaryPolygon();
+              } else if (selectionMode === "road" && !pendingRoad) {
+                event.preventDefault();
+                finishRoadPolyline();
               } else if (selectionMode === "greenParkPolygon" && !pendingGreenPark) {
                 event.preventDefault();
                 finishGreenParkPolygon();
@@ -1769,6 +1912,7 @@ export function PdfSiteSetup() {
               <RoadOverlay
                 key={road.id}
                 road={road}
+                displayWidth={getRoadWidthPixels(road.width)}
                 isSelected={road.id === selectedRoadId}
                 onSelect={() => {
                   setSelectedZoneId(undefined);
@@ -1779,9 +1923,17 @@ export function PdfSiteSetup() {
             {pendingRoad ? (
               <RoadOverlay
                 road={pendingRoad}
+                displayWidth={getRoadWidthPixels(pendingRoad.width)}
                 isSelected={false}
                 isTemporary
                 onSelect={() => undefined}
+              />
+            ) : null}
+            {selectionMode === "road" && draftRoadPoints.length ? (
+              <RoadPolylinePreview
+                points={draftRoadPoints}
+                previewPoint={roadPreviewPoint}
+                width={getRoadWidthPixels(activeRoadWidth ?? 0)}
               />
             ) : null}
             {ancillaryBuildings.map((building, index) => (
@@ -1818,7 +1970,6 @@ export function PdfSiteSetup() {
             {draftSelection && (
               selectionMode === "crop" ||
               selectionMode === "boundaryRectangle" ||
-              selectionMode === "road" ||
               selectionMode === "ancillaryRectangle" ||
               selectionMode === "greenParkRectangle" ||
               selectionMode === "existingBuildingRectangle"
@@ -2193,6 +2344,8 @@ export function PdfSiteSetup() {
               <strong>{getRoadTypeLabel(pendingRoad.type)}</strong>
               <span>Width:</span>
               <strong>{formatRoadWidth(pendingRoad.width)}m</strong>
+              <span>Vertices:</span>
+              <strong>{pendingRoad.points.length}</strong>
             </div>
             <div className="floatingPanelActions">
               <button type="button" onClick={confirmPendingRoad}>Confirm</button>
@@ -2482,33 +2635,95 @@ function SelectionOverlay({
 
 function RoadOverlay({
   road,
+  displayWidth,
   isSelected,
   isTemporary = false,
   onSelect,
 }: {
   road: SetupRoad;
+  displayWidth: number;
   isSelected: boolean;
   isTemporary?: boolean;
   onSelect: () => void;
 }) {
+  const points = getRoadPoints(road);
+  const center = getPointsCenter(points);
   return (
-    <button
+    <svg
       className={`roadSelectionOverlay ${isSelected ? "selected" : ""} ${isTemporary ? "temporary" : ""}`}
-      type="button"
-      style={{
-        left: road.x,
-        top: road.y,
-        width: road.rectangleWidth,
-        height: road.rectangleHeight,
-      }}
-      onPointerDown={(event) => {
-        event.stopPropagation();
-        onSelect();
-      }}
+      width="100%"
+      height="100%"
       aria-label={`${getRoadTypeLabel(road.type)} ${formatRoadWidth(road.width)} meters`}
     >
-      <span>{getRoadTypeLabel(road.type)} ({formatRoadWidth(road.width)}m)</span>
-    </button>
+      <polyline
+        className="roadSelectionOutline"
+        points={points.map((point) => `${point.x},${point.y}`).join(" ")}
+        fill="none"
+        strokeWidth={displayWidth + 4}
+        strokeLinejoin="round"
+        strokeLinecap="round"
+        onPointerDown={(event) => {
+          event.stopPropagation();
+          onSelect();
+        }}
+      />
+      <polyline
+        className="roadSelectionCenterline"
+        points={points.map((point) => `${point.x},${point.y}`).join(" ")}
+        fill="none"
+        strokeWidth={displayWidth}
+        strokeLinejoin="round"
+        strokeLinecap="round"
+        pointerEvents="none"
+      />
+      <text
+        x={center.x}
+        y={center.y}
+        className="roadSelectionLabel"
+        textAnchor="middle"
+        dominantBaseline="middle"
+        pointerEvents="none"
+      >
+        {getRoadTypeLabel(road.type)} ({formatRoadWidth(road.width)}m)
+      </text>
+    </svg>
+  );
+}
+
+function RoadPolylinePreview({
+  points,
+  previewPoint,
+  width,
+}: {
+  points: ContextPoint[];
+  previewPoint?: ContextPoint;
+  width: number;
+}) {
+  const previewPoints = previewPoint ? [...points, previewPoint] : points;
+  return (
+    <svg className="roadPolylinePreview contextZoneOverlay" width="100%" height="100%">
+      <polyline
+        points={previewPoints.map((point) => `${point.x},${point.y}`).join(" ")}
+        fill="none"
+        stroke="rgba(120, 120, 120, 0.95)"
+        strokeWidth={Math.max(2, width)}
+        strokeLinejoin="round"
+        strokeLinecap="round"
+        pointerEvents="none"
+      />
+      {points.map((point, index) => (
+        <circle
+          key={`${point.x}-${point.y}-${index}`}
+          cx={point.x}
+          cy={point.y}
+          r={5}
+          fill="#ffffff"
+          stroke="#f97316"
+          strokeWidth={3}
+          pointerEvents="none"
+        />
+      ))}
+    </svg>
   );
 }
 
@@ -2888,6 +3103,32 @@ function rectangleToPoints(selection: SelectionRect): ContextPoint[] {
     { x: selection.x + selection.width, y: selection.y },
     { x: selection.x + selection.width, y: selection.y + selection.height },
     { x: selection.x, y: selection.y + selection.height },
+  ];
+}
+
+function getRoadPoints(road: SetupRoad): ContextPoint[] {
+  if (Array.isArray(road.points) && road.points.length >= 2) return road.points;
+  if (
+    road.x === undefined ||
+    road.y === undefined ||
+    road.rectangleWidth === undefined ||
+    road.rectangleHeight === undefined
+  ) {
+    return [];
+  }
+
+  if (road.rectangleWidth >= road.rectangleHeight) {
+    const centerY = road.y + road.rectangleHeight / 2;
+    return [
+      { x: road.x, y: centerY },
+      { x: road.x + road.rectangleWidth, y: centerY },
+    ];
+  }
+
+  const centerX = road.x + road.rectangleWidth / 2;
+  return [
+    { x: centerX, y: road.y },
+    { x: centerX, y: road.y + road.rectangleHeight },
   ];
 }
 

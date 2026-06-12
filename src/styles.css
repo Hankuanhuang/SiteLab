@@ -389,10 +389,12 @@ p {
 }
 
 .conceptPreviewDialog {
-  width: min(1200px, 96vw);
-  max-height: 94vh;
-  display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
+  width: 90vw;
+  height: 90vh;
+  max-width: none;
+  max-height: none;
+  display: flex;
+  flex-direction: column;
   overflow: hidden;
   border: 1px solid var(--line);
   border-radius: 10px;
@@ -401,18 +403,70 @@ p {
 }
 
 .conceptPreviewHeader {
+  position: relative;
+  z-index: 2;
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: 18px;
   padding: 18px 20px;
   border-bottom: 1px solid var(--line);
+  background: #ffffff;
+}
+
+.conceptPreviewActions {
+  display: flex;
+  align-items: flex-end;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.conceptRenderError {
+  position: relative;
+  z-index: 1;
+  margin: 0;
+  padding: 10px 20px;
+  border-bottom: 1px solid #fecaca;
+  background: #fef2f2;
+  color: #b91c1c;
+  line-height: 1.45;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.conceptRenderPicker {
+  display: flex;
+  gap: 8px;
+  padding: 10px 20px;
+  overflow-x: auto;
+  border-bottom: 1px solid var(--line);
+  background: #f8fafc;
+}
+
+.conceptRenderPicker button {
+  min-width: max-content;
+  height: 34px;
+  padding: 0 12px;
+  border-color: #94a3b8;
+  background: #ffffff;
+  color: #334155;
+}
+
+.conceptRenderPicker button.active {
+  border-color: #0f766e;
+  background: #0f766e;
+  color: #ffffff;
 }
 
 .conceptPreviewImage {
+  flex: 1 1 auto;
   min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 20px;
   overflow: auto;
-  padding: 20px;
+  padding: 16px;
+  overscroll-behavior: contain;
   background:
     linear-gradient(45deg, #e9eef0 25%, transparent 25%),
     linear-gradient(-45deg, #e9eef0 25%, transparent 25%),
@@ -422,11 +476,34 @@ p {
   background-size: 20px 20px;
 }
 
+.conceptPreviewImage.comparison {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
+}
+
+.conceptPreviewImage figure {
+  min-width: 0;
+  min-height: 100%;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  margin: 0;
+}
+
+.conceptPreviewImage figcaption {
+  margin-bottom: 8px;
+  color: #334155;
+  font-size: 13px;
+  font-weight: 700;
+}
+
 .conceptPreviewImage img {
   display: block;
   width: 100%;
-  height: auto;
+  height: 100%;
+  max-height: 100%;
   margin: 0 auto;
+  object-fit: contain;
+  object-position: top center;
   border: 1px solid #cbd5e1;
   background: #ffffff;
   box-shadow: 0 8px 30px rgba(15, 23, 42, 0.18);
@@ -942,40 +1019,46 @@ input[type="range"] {
 
 .roadSelectionOverlay {
   position: absolute;
-  display: grid;
-  place-items: center;
-  min-height: 0;
-  padding: 5px;
-  border: 2px solid rgba(120, 120, 120, 0.9);
-  border-radius: 0;
-  background: rgba(180, 180, 180, 0.45);
-  color: #374151;
-  font-size: 14px;
-  font-weight: 700;
-  line-height: 1.2;
-  text-align: center;
-  overflow: hidden;
+  inset: 0;
+  z-index: 3;
+  overflow: visible;
+  pointer-events: none;
 }
 
-.roadSelectionOverlay:hover {
-  background: rgba(180, 180, 180, 0.58);
+.roadSelectionOutline {
+  stroke: rgba(120, 120, 120, 0.9);
+  pointer-events: stroke;
+  cursor: pointer;
 }
 
-.roadSelectionOverlay.selected {
-  border-color: #f97316;
-  box-shadow: inset 0 0 0 1px #f97316;
+.roadSelectionCenterline {
+  stroke: rgba(180, 180, 180, 0.7);
+}
+
+.roadSelectionOverlay.selected .roadSelectionOutline {
+  stroke: #f97316;
+}
+
+.roadSelectionOverlay.temporary .roadSelectionOutline {
+  stroke-dasharray: 10 7;
 }
 
 .roadSelectionOverlay.temporary {
-  border-style: dashed;
-  border-width: 3px;
-  background: rgba(180, 180, 180, 0.3);
   opacity: 0.82;
-  pointer-events: none;
 }
 
-.roadSelectionOverlay span {
-  pointer-events: none;
+.roadSelectionLabel {
+  fill: #374151;
+  paint-order: stroke;
+  stroke: rgba(255, 255, 255, 0.9);
+  stroke-width: 4px;
+  stroke-linejoin: round;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.roadPolylinePreview {
+  z-index: 4;
 }
 
 .roadConfirmationSummary {
@@ -1229,7 +1312,17 @@ input[type="range"] {
   }
 
   .conceptPreviewDialog {
-    width: 100%;
-    max-height: 96vh;
+    width: 96vw;
+    height: 94vh;
+  }
+
+  .conceptPreviewHeader,
+  .conceptPreviewActions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .conceptPreviewImage.comparison {
+    grid-template-columns: 1fr;
   }
 }

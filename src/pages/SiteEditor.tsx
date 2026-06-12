@@ -6,8 +6,10 @@ import { Toolbar } from "../components/Toolbar";
 import { createBridge, createRectangle, createSquare, createToilet } from "../models/Building";
 import { defaultSiteData, siteDataToDimensions } from "../models/Site";
 import { exportConceptSitePlan } from "../services/conceptSitePlan";
+import { renderConceptPlanWithAi } from "../services/aiConceptRender";
 import {
   addConceptPlanExport,
+  addConceptPlanRenderedVersion,
   deleteConceptPlanExport,
   getLegacyProjectId,
   getNextExportNumber,
@@ -20,6 +22,7 @@ import { buildLayoutJson, downloadLayoutJson, parseLayoutJson } from "../service
 import type {
   Building,
   ConceptPlanExport,
+  ConceptPlanRenderedVersion,
   Entrance,
   EntranceLabel,
   PdfBackgroundMeta,
@@ -713,6 +716,12 @@ export function SiteEditor() {
         trees,
         sidewalks,
         entrances,
+        backgroundMeta?.roads,
+        backgroundMeta?.ancillaryBuildings,
+        backgroundMeta?.siteBoundary,
+        backgroundMeta?.existingBuildings,
+        backgroundMeta?.existingTrees,
+        backgroundImageSrc,
         projectName,
         backgroundMeta?.siteShape ?? "rectangle",
         getLayoutSiteVertices(backgroundMeta, site),
@@ -764,6 +773,17 @@ export function SiteEditor() {
     deleteConceptPlanExport(projectId, item.id);
     setConceptPlanExports(readConceptPlanExports(projectId));
     if (previewedConceptPlan?.id === item.id) setPreviewedConceptPlan(undefined);
+  };
+
+  const renderConceptPlan = async (
+    item: ConceptPlanExport,
+  ): Promise<ConceptPlanRenderedVersion> => {
+    const rendered = await renderConceptPlanWithAi(item.previewDataUrl);
+    addConceptPlanRenderedVersion(projectId, item.id, rendered);
+    const nextExports = readConceptPlanExports(projectId);
+    setConceptPlanExports(nextExports);
+    setPreviewedConceptPlan(nextExports.find((current) => current.id === item.id));
+    return rendered;
   };
 
   return (
@@ -979,6 +999,7 @@ export function SiteEditor() {
         onPreview={setPreviewedConceptPlan}
         onRename={renameConceptPlan}
         onDelete={removeConceptPlan}
+        onRender={renderConceptPlan}
       />
       {treeDiameterDialogId ? (
         <div

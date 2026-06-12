@@ -370,6 +370,7 @@ export function SiteCanvas({
               crop={crop}
               backgroundView={backgroundView}
               pageScale={pageScale}
+              pixelsPerMeter={renderSite.pixelsPerMeter}
             />
           ))}
           {ancillaryBuildings.map((building, index) => (
@@ -745,34 +746,47 @@ function SetupRoadShape({
   crop,
   backgroundView,
   pageScale,
+  pixelsPerMeter,
 }: {
   road: SetupRoad;
   crop: { x: number; y: number };
   backgroundView: PdfBackgroundView;
   pageScale: number;
+  pixelsPerMeter: number;
 }) {
   const offsetX = backgroundView === "full" ? crop.x : 0;
   const offsetY = backgroundView === "full" ? crop.y : 0;
-  const x = (road.x + offsetX) * pageScale;
-  const y = (road.y + offsetY) * pageScale;
-  const width = road.rectangleWidth * pageScale;
-  const height = road.rectangleHeight * pageScale;
+  const points = getSetupRoadPoints(road).flatMap((point) => [
+    (point.x + offsetX) * pageScale,
+    (point.y + offsetY) * pageScale,
+  ]);
+  const center = getFlatPointsCenter(points);
+  const roadWidth = Math.max(2, road.width * pixelsPerMeter);
 
   return (
-    <Group x={x} y={y} listening={false}>
-      <Rect
-        width={width}
-        height={height}
-        fill="rgba(180, 180, 180, 0.45)"
+    <Group listening={false}>
+      <Line
+        points={points}
         stroke="rgba(120, 120, 120, 0.9)"
-        strokeWidth={2}
+        strokeWidth={roadWidth + 4}
+        lineJoin="round"
+        lineCap="round"
+      />
+      <Line
+        points={points}
+        stroke="rgba(180, 180, 180, 0.7)"
+        strokeWidth={roadWidth}
+        lineJoin="round"
+        lineCap="round"
       />
       <Text
-        width={width}
-        height={height}
+        x={center.x - 90}
+        y={center.y - 10}
+        width={180}
+        height={20}
         text={`${getSetupRoadLabel(road.type)} (${formatSetupRoadWidth(road.width)}m)`}
         fill="#374151"
-        fontSize={Math.max(9, Math.min(16, Math.min(width, height) * 0.18))}
+        fontSize={Math.max(9, Math.min(16, roadWidth * 0.45))}
         fontStyle="bold"
         align="center"
         verticalAlign="middle"
@@ -781,6 +795,30 @@ function SetupRoadShape({
       />
     </Group>
   );
+}
+
+function getSetupRoadPoints(road: SetupRoad) {
+  if (road.points?.length >= 2) return road.points;
+  if (
+    road.x === undefined ||
+    road.y === undefined ||
+    road.rectangleWidth === undefined ||
+    road.rectangleHeight === undefined
+  ) {
+    return [];
+  }
+  if (road.rectangleWidth >= road.rectangleHeight) {
+    const centerY = road.y + road.rectangleHeight / 2;
+    return [
+      { x: road.x, y: centerY },
+      { x: road.x + road.rectangleWidth, y: centerY },
+    ];
+  }
+  const centerX = road.x + road.rectangleWidth / 2;
+  return [
+    { x: centerX, y: road.y },
+    { x: centerX, y: road.y + road.rectangleHeight },
+  ];
 }
 
 function getSetupRoadLabel(type: SetupRoad["type"]) {

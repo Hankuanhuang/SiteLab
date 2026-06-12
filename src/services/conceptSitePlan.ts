@@ -1,10 +1,15 @@
 import type {
+  AncillaryBuilding,
   Building,
   Entrance,
+  ExistingBuilding,
+  ExistingTree,
+  PdfBackgroundMeta,
   Sidewalk,
   SiteDimensions,
   SiteLabel,
   SiteShape,
+  SetupRoad,
   Tree,
 } from "../types/layout";
 import { getSidewalkPoints } from "../utils/sidewalkGeometry";
@@ -27,6 +32,12 @@ export async function exportConceptSitePlan(
   trees: Tree[] = [],
   sidewalks: Sidewalk[] = [],
   entrances: Entrance[] = [],
+  roads: SetupRoad[] = [],
+  ancillaryBuildings: AncillaryBuilding[] = [],
+  siteBoundary?: PdfBackgroundMeta["siteBoundary"],
+  existingBuildings: ExistingBuilding[] = [],
+  existingTrees: ExistingTree[] = [],
+  backgroundImageSrc?: string,
   projectName = "Untitled Layout",
   siteShape: SiteShape = "rectangle",
   siteVertices: Array<{ x: number; y: number }> = [],
@@ -53,7 +64,40 @@ export async function exportConceptSitePlan(
     y: drawingMargin + (availableHeight - siteHeight) / 2,
   };
 
-  drawOpenSpacePattern(context, origin.x, origin.y, siteWidth, siteHeight);
+  const backgroundImage = backgroundImageSrc
+    ? await loadExportImage(backgroundImageSrc)
+    : undefined;
+  if (backgroundImage && siteBoundary?.width && siteBoundary.height) {
+    drawBackgroundImage(
+      context,
+      backgroundImage,
+      siteBoundary,
+      origin,
+      siteWidth,
+      siteHeight,
+      siteShape,
+      siteVertices,
+      scale,
+    );
+  } else {
+    drawOpenSpacePattern(context, origin.x, origin.y, siteWidth, siteHeight);
+  }
+
+  context.save();
+  clipSite(context, siteShape, siteVertices, origin, scale, siteWidth, siteHeight);
+  drawRoads(context, roads, site, siteBoundary, origin, scale, false);
+  drawAncillaryBuildings(context, ancillaryBuildings, site, siteBoundary, origin, scale, false);
+  drawExistingBuildings(context, existingBuildings, site, siteBoundary, origin, scale, false);
+  drawExistingTrees(context, existingTrees, site, siteBoundary, origin, scale);
+  context.restore();
+
+  if (siteShape === "polygon" && siteVertices.length >= 3) {
+    drawPolygonSiteBoundary(context, siteVertices, edgeLengths, origin, scale);
+  } else {
+    drawSiteBoundary(context, origin.x, origin.y, siteWidth, siteHeight);
+    drawSiteDimensions(context, origin.x, origin.y, siteWidth, siteHeight, site);
+  }
+
   drawSidewalks(context, sidewalks, site, origin, scale);
   drawTrees(context, trees, origin, scale);
   drawBuildings(context, buildings, origin, scale);
@@ -62,12 +106,12 @@ export async function exportConceptSitePlan(
   }
   drawEntrances(context, entrances, origin, scale);
   drawSiteLabels(context, siteLabels, origin, scale);
-  if (siteShape === "polygon" && siteVertices.length >= 3) {
-    drawPolygonSiteBoundary(context, siteVertices, edgeLengths, origin, scale);
-  } else {
-    drawSiteBoundary(context, origin.x, origin.y, siteWidth, siteHeight);
-    drawSiteDimensions(context, origin.x, origin.y, siteWidth, siteHeight, site);
-  }
+  context.save();
+  clipSite(context, siteShape, siteVertices, origin, scale, siteWidth, siteHeight);
+  drawRoads(context, roads, site, siteBoundary, origin, scale, true);
+  drawAncillaryBuildings(context, ancillaryBuildings, site, siteBoundary, origin, scale, true);
+  drawExistingBuildings(context, existingBuildings, site, siteBoundary, origin, scale, true);
+  context.restore();
   drawNorthArrow(context, exportWidth - 330, 280);
   drawTitleBlock(context, projectName);
 
@@ -104,6 +148,41 @@ function createScaledImage(source: HTMLCanvasElement, targetWidth: number, quali
   context.fillRect(0, 0, canvas.width, canvas.height);
   context.drawImage(source, 0, 0, canvas.width, canvas.height);
   return canvas.toDataURL("image/jpeg", quality);
+}
+
+function loadExportImage(source: string) {
+  return new Promise<HTMLImageElement | undefined>((resolve) => {
+    const image = new Image();
+    image.onload = () => resolve(image);
+    image.onerror = () => resolve(undefined);
+    image.src = source;
+  });
+}
+
+function drawBackgroundImage(
+  context: CanvasRenderingContext2D,
+  image: HTMLImageElement,
+  boundary: PdfBackgroundMeta["siteBoundary"],
+  origin: { x: number; y: number },
+  siteWidth: number,
+  siteHeight: number,
+  siteShape: SiteShape,
+  siteVertices: Array<{ x: number; y: number }>,
+  scale: number,
+) {
+  const scaleX = siteWidth / boundary.width;
+  const scaleY = siteHeight / boundary.height;
+  context.save();
+  clipSite(context, siteShape, siteVertices, origin, scale, siteWidth, siteHeight);
+  context.globalAlpha = 0.72;
+  context.drawImage(
+    image,
+    origin.x - boundary.x * scaleX,
+    origin.y - boundary.y * scaleY,
+    image.naturalWidth * scaleX,
+    image.naturalHeight * scaleY,
+  );
+  context.restore();
 }
 
 function drawPolygonSiteBoundary(
@@ -237,6 +316,410 @@ function getExportEntranceLabelCoordinates(
     x: arrowCenterX - labelWidth / 2,
     y: arrowBounds.maxY + verticalGap,
   };
+}
+
+function clipSite(
+  context: CanvasRenderingContext2D,
+  siteShape: SiteShape,
+  siteVertices: Array<{ x: number; y: number }>,
+  origin: { x: number; y: number },
+  scale: number,
+  siteWidth: number,
+  siteHeight: number,
+) {
+  context.beginPath();
+  if (siteShape === "polygon" && siteVertices.length >= 3) {
+    siteVertices.forEach((point, index) => {
+      const x = origin.x + point.x * scale;
+      const y = origin.y + point.y * scale;
+      if (index === 0) context.moveTo(x, y);
+      else context.lineTo(x, y);
+    });
+    context.closePath();
+  } else {
+    context.rect(origin.x, origin.y, siteWidth, siteHeight);
+  }
+  context.clip();
+}
+
+function drawRoads(
+  context: CanvasRenderingContext2D,
+  roads: SetupRoad[],
+  site: SiteDimensions,
+  boundary: PdfBackgroundMeta["siteBoundary"] | undefined,
+  origin: { x: number; y: number },
+  scale: number,
+  labelsOnly: boolean,
+) {
+  if (!boundary?.width || !boundary.height) return;
+
+  roads.forEach((road) => {
+    const points = getConceptRoadPoints(road).map((point) =>
+      backgroundPointToExport(point, site, boundary, origin, scale),
+    );
+    if (points.length < 2) return;
+    const roadWidth = Math.max(2, road.width * scale);
+
+    context.save();
+    if (labelsOnly) {
+      drawRoadLabel(context, road, points, roadWidth);
+    } else {
+      context.strokeStyle = "#6b7280";
+      context.lineWidth = roadWidth + 8;
+      context.lineJoin = "round";
+      context.lineCap = "round";
+      tracePolyline(context, points);
+      context.stroke();
+      context.strokeStyle = "#d1d5db";
+      context.lineWidth = roadWidth;
+      tracePolyline(context, points);
+      context.stroke();
+    }
+    context.restore();
+  });
+}
+
+function getConceptRoadPoints(road: SetupRoad) {
+  if (road.points?.length >= 2) return road.points;
+  if (
+    road.x === undefined ||
+    road.y === undefined ||
+    road.rectangleWidth === undefined ||
+    road.rectangleHeight === undefined
+  ) {
+    return [];
+  }
+  if (road.rectangleWidth >= road.rectangleHeight) {
+    const centerY = road.y + road.rectangleHeight / 2;
+    return [
+      { x: road.x, y: centerY },
+      { x: road.x + road.rectangleWidth, y: centerY },
+    ];
+  }
+  const centerX = road.x + road.rectangleWidth / 2;
+  return [
+    { x: centerX, y: road.y },
+    { x: centerX, y: road.y + road.rectangleHeight },
+  ];
+}
+
+function drawRoadLabel(
+  context: CanvasRenderingContext2D,
+  road: SetupRoad,
+  points: Array<{ x: number; y: number }>,
+  roadWidth: number,
+) {
+  const segments = points
+    .slice(0, -1)
+    .map((start, index) => {
+      const end = points[index + 1];
+      return {
+        start,
+        end,
+        length: Math.hypot(end.x - start.x, end.y - start.y),
+      };
+    })
+    .sort((left, right) => right.length - left.length);
+  const segment = segments[0];
+  if (!segment || segment.length < 12 || roadWidth < 10) return;
+
+  const usableLength = Math.max(1, segment.length - roadWidth * 0.7);
+  const usableHeight = Math.max(1, roadWidth * 0.72);
+  const labels = getRoadLabelCandidates(road);
+  const fitted = fitSingleLineLabel(context, labels, usableLength, usableHeight, 44, 8);
+  if (!fitted) return;
+
+  const centerX = (segment.start.x + segment.end.x) / 2;
+  const centerY = (segment.start.y + segment.end.y) / 2;
+  let angle = Math.atan2(
+    segment.end.y - segment.start.y,
+    segment.end.x - segment.start.x,
+  );
+  if (angle > Math.PI / 2 || angle < -Math.PI / 2) angle += Math.PI;
+
+  context.save();
+  context.translate(centerX, centerY);
+  context.rotate(angle);
+  context.beginPath();
+  context.rect(-usableLength / 2, -usableHeight / 2, usableLength, usableHeight);
+  context.clip();
+  context.fillStyle = "#111827";
+  context.font = `700 ${fitted.fontSize}px Arial`;
+  context.textAlign = "center";
+  context.textBaseline = "middle";
+  context.fillText(fitted.text, 0, 0, usableLength);
+  context.restore();
+}
+
+function getRoadLabelCandidates(road: SetupRoad) {
+  const width = formatDistance(road.width);
+  const name =
+    road.type === "primary"
+      ? "Primary Road"
+      : road.type === "secondary"
+        ? "Secondary Road"
+        : "Lane";
+  const shortName =
+    road.type === "primary" ? "Primary" : road.type === "secondary" ? "Secondary" : "Lane";
+  return [`${name} (${width}m)`, `${shortName} (${width}m)`, `${width}m`];
+}
+
+function drawAncillaryBuildings(
+  context: CanvasRenderingContext2D,
+  buildings: AncillaryBuilding[],
+  site: SiteDimensions,
+  boundary: PdfBackgroundMeta["siteBoundary"] | undefined,
+  origin: { x: number; y: number },
+  scale: number,
+  labelsOnly: boolean,
+) {
+  if (!boundary?.width || !boundary.height) return;
+
+  buildings.forEach((building) => {
+    const points = building.points.map((point) =>
+      backgroundPointToExport(point, site, boundary, origin, scale),
+    );
+    if (points.length < 3) return;
+
+    context.save();
+    tracePolygon(context, points);
+    if (labelsOnly) {
+      context.clip();
+      drawHorizontalPolygonLabel(context, building.label, points);
+    } else {
+      context.fillStyle = "#e5e7eb";
+      context.fill();
+      context.strokeStyle = "#4b5563";
+      context.lineWidth = 6;
+      context.stroke();
+    }
+    context.restore();
+  });
+}
+
+function drawExistingBuildings(
+  context: CanvasRenderingContext2D,
+  buildings: ExistingBuilding[],
+  site: SiteDimensions,
+  boundary: PdfBackgroundMeta["siteBoundary"] | undefined,
+  origin: { x: number; y: number },
+  scale: number,
+  labelsOnly: boolean,
+) {
+  if (!boundary?.width || !boundary.height) return;
+
+  buildings.forEach((building) => {
+    const points = building.points.map((point) =>
+      backgroundPointToExport(point, site, boundary, origin, scale),
+    );
+    if (points.length < 3) return;
+
+    context.save();
+    tracePolygon(context, points);
+    if (labelsOnly) {
+      context.clip();
+      drawHorizontalPolygonLabel(context, building.label, points);
+    } else {
+      context.fillStyle = "rgba(107, 114, 128, 0.48)";
+      context.fill();
+      context.strokeStyle = "#374151";
+      context.lineWidth = 6;
+      context.stroke();
+    }
+    context.restore();
+  });
+}
+
+function drawExistingTrees(
+  context: CanvasRenderingContext2D,
+  trees: ExistingTree[],
+  site: SiteDimensions,
+  boundary: PdfBackgroundMeta["siteBoundary"] | undefined,
+  origin: { x: number; y: number },
+  scale: number,
+) {
+  if (!boundary?.width || !boundary.height) return;
+  const scaleX = (site.width * scale) / boundary.width;
+  const scaleY = (site.length * scale) / boundary.height;
+  const radiusScale = Math.min(scaleX, scaleY);
+
+  trees.forEach((tree) => {
+    const center = backgroundPointToExport(tree, site, boundary, origin, scale);
+    const radius = Math.max(3, tree.radius * radiusScale);
+    context.save();
+    context.fillStyle = "rgba(34, 197, 94, 0.35)";
+    context.strokeStyle = "#166534";
+    context.lineWidth = 5;
+    context.beginPath();
+    context.arc(center.x, center.y, radius, 0, Math.PI * 2);
+    context.fill();
+    context.stroke();
+    context.beginPath();
+    context.arc(center.x, center.y, Math.max(2, radius * 0.12), 0, Math.PI * 2);
+    context.fillStyle = "#166534";
+    context.fill();
+    context.restore();
+  });
+}
+
+function drawHorizontalPolygonLabel(
+  context: CanvasRenderingContext2D,
+  label: string,
+  points: Array<{ x: number; y: number }>,
+) {
+  const bounds = getPointBounds(points);
+  const preferredY = clampNumber(
+    getPolygonCentroid(points).y,
+    bounds.minY + 4,
+    bounds.maxY - 4,
+  );
+  const span = getWidestHorizontalSpan(points, preferredY, bounds);
+  if (!span || span.width < 8 || bounds.maxY - bounds.minY < 8) return;
+
+  const maxWidth = Math.max(1, span.width * 0.88);
+  const maxHeight = Math.max(1, (bounds.maxY - bounds.minY) * 0.72);
+  const fitted = fitSingleLineLabel(context, [label], maxWidth, maxHeight, 46, 8);
+  if (!fitted) return;
+
+  context.fillStyle = "#111827";
+  context.font = `700 ${fitted.fontSize}px Arial`;
+  context.textAlign = "center";
+  context.textBaseline = "middle";
+  context.fillText(fitted.text, span.centerX, span.y, maxWidth);
+}
+
+function backgroundPointToExport(
+  point: { x: number; y: number },
+  site: SiteDimensions,
+  boundary: PdfBackgroundMeta["siteBoundary"],
+  origin: { x: number; y: number },
+  scale: number,
+) {
+  return {
+    x: origin.x + ((point.x - boundary.x) / boundary.width) * site.width * scale,
+    y: origin.y + ((point.y - boundary.y) / boundary.height) * site.length * scale,
+  };
+}
+
+function tracePolyline(
+  context: CanvasRenderingContext2D,
+  points: Array<{ x: number; y: number }>,
+) {
+  context.beginPath();
+  context.moveTo(points[0].x, points[0].y);
+  points.slice(1).forEach((point) => context.lineTo(point.x, point.y));
+}
+
+function tracePolygon(
+  context: CanvasRenderingContext2D,
+  points: Array<{ x: number; y: number }>,
+) {
+  tracePolyline(context, points);
+  context.closePath();
+}
+
+function fitSingleLineLabel(
+  context: CanvasRenderingContext2D,
+  candidates: string[],
+  maxWidth: number,
+  maxHeight: number,
+  maximumFontSize: number,
+  minimumFontSize: number,
+) {
+  for (const text of candidates) {
+    for (
+      let fontSize = Math.min(maximumFontSize, Math.floor(maxHeight * 0.82));
+      fontSize >= minimumFontSize;
+      fontSize -= 1
+    ) {
+      context.font = `700 ${fontSize}px Arial`;
+      const metrics = context.measureText(text);
+      const textHeight =
+        (metrics.actualBoundingBoxAscent || fontSize * 0.75) +
+        (metrics.actualBoundingBoxDescent || fontSize * 0.25);
+      if (metrics.width <= maxWidth && textHeight <= maxHeight) {
+        return { text, fontSize };
+      }
+    }
+  }
+  return undefined;
+}
+
+function getPointBounds(points: Array<{ x: number; y: number }>) {
+  return {
+    minX: Math.min(...points.map((point) => point.x)),
+    maxX: Math.max(...points.map((point) => point.x)),
+    minY: Math.min(...points.map((point) => point.y)),
+    maxY: Math.max(...points.map((point) => point.y)),
+  };
+}
+
+function getPolygonCentroid(points: Array<{ x: number; y: number }>) {
+  let signedArea = 0;
+  let centerX = 0;
+  let centerY = 0;
+  points.forEach((point, index) => {
+    const next = points[(index + 1) % points.length];
+    const cross = point.x * next.y - next.x * point.y;
+    signedArea += cross;
+    centerX += (point.x + next.x) * cross;
+    centerY += (point.y + next.y) * cross;
+  });
+  if (Math.abs(signedArea) < 0.001) {
+    return points.reduce(
+      (sum, point) => ({
+        x: sum.x + point.x / points.length,
+        y: sum.y + point.y / points.length,
+      }),
+      { x: 0, y: 0 },
+    );
+  }
+  return {
+    x: centerX / (3 * signedArea),
+    y: centerY / (3 * signedArea),
+  };
+}
+
+function getWidestHorizontalSpan(
+  points: Array<{ x: number; y: number }>,
+  preferredY: number,
+  bounds: { minX: number; maxX: number; minY: number; maxY: number },
+) {
+  const candidates = [
+    preferredY,
+    (bounds.minY + bounds.maxY) / 2,
+    bounds.minY + (bounds.maxY - bounds.minY) * 0.35,
+    bounds.minY + (bounds.maxY - bounds.minY) * 0.65,
+  ];
+  return candidates
+    .flatMap((y) => getHorizontalSpans(points, y))
+    .sort((left, right) => right.width - left.width)[0];
+}
+
+function getHorizontalSpans(points: Array<{ x: number; y: number }>, y: number) {
+  const intersections: number[] = [];
+  points.forEach((point, index) => {
+    const next = points[(index + 1) % points.length];
+    if ((point.y <= y && next.y > y) || (next.y <= y && point.y > y)) {
+      intersections.push(point.x + ((y - point.y) * (next.x - point.x)) / (next.y - point.y));
+    }
+  });
+  intersections.sort((left, right) => left - right);
+  const spans: Array<{ centerX: number; y: number; width: number }> = [];
+  for (let index = 0; index + 1 < intersections.length; index += 2) {
+    const start = intersections[index];
+    const end = intersections[index + 1];
+    spans.push({ centerX: (start + end) / 2, y, width: end - start });
+  }
+  return spans;
+}
+
+function clampNumber(value: number, min: number, max: number) {
+  return Math.max(min, Math.min(max, value));
+}
+
+function formatDistance(value: number) {
+  return Number.isInteger(value) ? String(value) : value.toFixed(1);
 }
 
 function drawSidewalks(

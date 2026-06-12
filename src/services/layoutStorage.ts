@@ -120,10 +120,14 @@ export function buildLayoutJson(
     roads: roads.map((road) => ({
       ...road,
       width: round(road.width),
-      x: round(road.x),
-      y: round(road.y),
-      rectangleWidth: round(road.rectangleWidth),
-      rectangleHeight: round(road.rectangleHeight),
+      points: road.points.map((point) => ({
+        x: round(point.x),
+        y: round(point.y),
+      })),
+      x: undefined,
+      y: undefined,
+      rectangleWidth: undefined,
+      rectangleHeight: undefined,
     })),
     ancillaryBuildings: ancillaryBuildings.map((building) => ({
       ...building,
@@ -448,17 +452,28 @@ function readRoads(value: unknown): SetupRoad[] | undefined {
       return undefined;
     }
     const width = readPositiveNumber(item.width);
+    const points = readPoints(item.points);
     const x = readNumber(item.x);
     const y = readNumber(item.y);
     const rectangleWidth = readPositiveNumber(item.rectangleWidth);
     const rectangleHeight = readPositiveNumber(item.rectangleHeight);
-    if (
-      width === undefined ||
-      x === undefined ||
-      y === undefined ||
-      rectangleWidth === undefined ||
-      rectangleHeight === undefined
-    ) {
+    const legacyPoints =
+      x !== undefined &&
+      y !== undefined &&
+      rectangleWidth !== undefined &&
+      rectangleHeight !== undefined
+        ? rectangleWidth >= rectangleHeight
+          ? [
+              { x, y: y + rectangleHeight / 2 },
+              { x: x + rectangleWidth, y: y + rectangleHeight / 2 },
+            ]
+          : [
+              { x: x + rectangleWidth / 2, y },
+              { x: x + rectangleWidth / 2, y: y + rectangleHeight },
+            ]
+        : undefined;
+    const roadPoints = points && points.length >= 2 ? points : legacyPoints;
+    if (width === undefined || !roadPoints) {
       return undefined;
     }
 
@@ -466,10 +481,7 @@ function readRoads(value: unknown): SetupRoad[] | undefined {
       id: typeof item.id === "string" && item.id ? item.id : crypto.randomUUID(),
       type: item.type,
       width,
-      x,
-      y,
-      rectangleWidth,
-      rectangleHeight,
+      points: roadPoints,
     };
   });
 

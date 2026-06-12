@@ -76,10 +76,12 @@ export interface SetupRoad {
   id: string;
   type: RoadType;
   width: number;
-  x: number;
-  y: number;
-  rectangleWidth: number;
-  rectangleHeight: number;
+  points: ContextPoint[];
+  // Legacy rectangle fields are accepted when loading older saved layouts.
+  x?: number;
+  y?: number;
+  rectangleWidth?: number;
+  rectangleHeight?: number;
 }
 
 export type AncillaryBuildingShape = "rectangle" | "polygon";
@@ -197,6 +199,14 @@ export interface ConceptPlanExport {
   previewDataUrl: string;
   thumbnailDataUrl: string;
   favorite: boolean;
+  renderedVersions?: ConceptPlanRenderedVersion[];
+}
+
+export interface ConceptPlanRenderedVersion {
+  id: string;
+  createdAt: string;
+  previewDataUrl: string;
+  thumbnailDataUrl: string;
 }
 
 export interface LayoutFile {
