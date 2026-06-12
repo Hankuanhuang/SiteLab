@@ -5,7 +5,6 @@ import type {
   EntranceLabelPosition,
   PdfBackgroundView,
   Sidewalk,
-  SidewalkEdge,
   SiteDimensions,
   SiteLabel,
   Tree,
@@ -281,23 +280,7 @@ export function PropertyPanel({
                 onChange={(event) => onSidewalkChange({ ...selectedSidewalk, label: event.target.value })}
               />
             </label>
-            <label>
-              <span>Boundary Edge</span>
-              <select
-                value={selectedSidewalk.edge}
-                onChange={(event) =>
-                  onSidewalkChange({
-                    ...selectedSidewalk,
-                    edge: event.target.value as SidewalkEdge,
-                  })
-                }
-              >
-                <option value="top">Top Edge</option>
-                <option value="bottom">Bottom Edge</option>
-                <option value="left">Left Edge</option>
-                <option value="right">Right Edge</option>
-              </select>
-            </label>
+            <p className="muted">Boundary segment {selectedSidewalk.edgeIndex + 1}</p>
             <label>
               <span>Width (m)</span>
               <input
@@ -327,14 +310,17 @@ export function PropertyPanel({
         {selectedTree ? (
           <div className="buildingFields">
             <label>
-              <span>Tree Size (m)</span>
+              <span>Tree Diameter (m)</span>
               <input
                 type="number"
                 min="0.1"
                 step="0.1"
-                value={selectedTree.radius.toFixed(1)}
+                value={(selectedTree.radius * 2).toFixed(1)}
                 onChange={(event) =>
-                  onTreeChange({ ...selectedTree, radius: Math.max(0.1, Number(event.target.value) || 0.1) })
+                  onTreeChange({
+                    ...selectedTree,
+                    radius: Math.max(0.05, (Number(event.target.value) || 0.1) / 2),
+                  })
                 }
               />
             </label>

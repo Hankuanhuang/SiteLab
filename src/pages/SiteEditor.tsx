@@ -28,7 +28,6 @@ import type {
   SiteDimensions,
   SiteLabel,
   Sidewalk,
-  SidewalkEdge,
   Tree,
 } from "../types/layout";
 
@@ -66,7 +65,10 @@ export function SiteEditor() {
   const [selectedSidewalkId, setSelectedSidewalkId] = useState<string>();
   const [selectedEntranceId, setSelectedEntranceId] = useState<string>();
   const [isTreeToolActive, setIsTreeToolActive] = useState(false);
+  const [isSidewalkToolActive, setIsSidewalkToolActive] = useState(false);
   const [entrancePlacementLabel, setEntrancePlacementLabel] = useState<EntranceLabel>();
+  const [treeDiameterDialogId, setTreeDiameterDialogId] = useState<string>();
+  const [treeDiameterDraft, setTreeDiameterDraft] = useState("");
   const [projectId, setProjectId] = useState(initialProject.id);
   const [projectName, setProjectName] = useState(initialProject.name);
   const [projectNameDraft, setProjectNameDraft] = useState(initialProject.name);
@@ -319,6 +321,7 @@ export function SiteEditor() {
 
       if (event.key === "Escape") {
         setIsTreeToolActive(false);
+        setIsSidewalkToolActive(false);
         setEntrancePlacementLabel(undefined);
         return;
       }
@@ -390,6 +393,7 @@ export function SiteEditor() {
 
   const addRectangle = () => {
     setIsTreeToolActive(false);
+    setIsSidewalkToolActive(false);
     setEntrancePlacementLabel(undefined);
     const length = Number(window.prompt("Building Length", "20")) || 20;
     const width = Number(window.prompt("Building Width", "12")) || 12;
@@ -405,6 +409,7 @@ export function SiteEditor() {
 
   const addSquare = () => {
     setIsTreeToolActive(false);
+    setIsSidewalkToolActive(false);
     setEntrancePlacementLabel(undefined);
     const size = Number(window.prompt("Size", "10")) || 10;
     const building = createSquare(size);
@@ -419,6 +424,7 @@ export function SiteEditor() {
 
   const addBridge = () => {
     setIsTreeToolActive(false);
+    setIsSidewalkToolActive(false);
     setEntrancePlacementLabel(undefined);
     const building = createBridge();
     recordCurrent();
@@ -432,6 +438,7 @@ export function SiteEditor() {
 
   const addToilet = () => {
     setIsTreeToolActive(false);
+    setIsSidewalkToolActive(false);
     setEntrancePlacementLabel(undefined);
     const building = createToilet();
     recordCurrent();
@@ -445,6 +452,7 @@ export function SiteEditor() {
 
   const addSiteLabel = () => {
     setIsTreeToolActive(false);
+    setIsSidewalkToolActive(false);
     setEntrancePlacementLabel(undefined);
     const text = window.prompt("Label Text", "Main Square");
     if (text === null) return;
@@ -484,17 +492,42 @@ export function SiteEditor() {
     setSelectedEntranceId(undefined);
   };
 
-  const addSidewalk = () => {
-    setIsTreeToolActive(false);
-    setEntrancePlacementLabel(undefined);
-    const edgeInput = window.prompt("Sidewalk Edge: top, bottom, left, or right", "top");
-    if (edgeInput === null) return;
-    const edge = parseSidewalkEdge(edgeInput);
-    if (!edge) {
-      setLayoutError("Invalid sidewalk edge. Use top, bottom, left, or right.");
+  const openTreeDiameterDialog = (tree: Tree) => {
+    setSelectedTreeId(tree.id);
+    setTreeDiameterDialogId(tree.id);
+    setTreeDiameterDraft((tree.radius * 2).toFixed(1));
+  };
+
+  const saveTreeDiameter = () => {
+    const diameter = Number(treeDiameterDraft);
+    if (!treeDiameterDialogId || !Number.isFinite(diameter) || diameter <= 0) {
+      setLayoutError("Tree diameter must be greater than 0.");
       return;
     }
 
+    recordCurrent();
+    setTrees((current) =>
+      current.map((tree) =>
+        tree.id === treeDiameterDialogId
+          ? { ...tree, radius: diameter / 2 }
+          : tree,
+      ),
+    );
+    setTreeDiameterDialogId(undefined);
+    setTreeDiameterDraft("");
+    setLayoutError("");
+  };
+
+  const addSidewalk = () => {
+    setIsTreeToolActive(false);
+    setEntrancePlacementLabel(undefined);
+    setIsSidewalkToolActive((current) => !current);
+    setLayoutError("");
+  };
+
+  const placeSidewalk = (
+    geometry: Omit<Sidewalk, "id" | "type" | "width" | "label">,
+  ) => {
     const widthInput = window.prompt("Sidewalk Width (m)", "6");
     if (widthInput === null) return;
     const width = Number(widthInput);
@@ -506,7 +539,7 @@ export function SiteEditor() {
     const sidewalk: Sidewalk = {
       id: crypto.randomUUID(),
       type: "sidewalk",
-      edge,
+      ...geometry,
       width,
       label: "Sidewalk",
     };
@@ -518,6 +551,7 @@ export function SiteEditor() {
     setSelectedSiteLabelId(undefined);
     setSelectedTreeId(undefined);
     setSelectedEntranceId(undefined);
+    setIsSidewalkToolActive(false);
     setLayoutError("");
   };
 
@@ -539,6 +573,7 @@ export function SiteEditor() {
     }
 
     setIsTreeToolActive(false);
+    setIsSidewalkToolActive(false);
     setEntrancePlacementLabel(label);
     setSelectedBuildingId(undefined);
     setSelectedSiteLabelId(undefined);
@@ -623,6 +658,7 @@ export function SiteEditor() {
       setSelectedEntranceId(undefined);
       setClipboardItem(undefined);
       setIsTreeToolActive(false);
+      setIsSidewalkToolActive(false);
       setEntrancePlacementLabel(undefined);
       setHistory({ past: [], future: [] });
       editStartSnapshotRef.current = undefined;
@@ -754,8 +790,10 @@ export function SiteEditor() {
             isTreeToolActive={isTreeToolActive}
             onToggleTreeTool={() => {
               setEntrancePlacementLabel(undefined);
-              setIsTreeToolActive((current) => !current);
+              setIsSidewalkToolActive(false);
+              setIsTreeToolActive(true);
             }}
+            isSidewalkToolActive={isSidewalkToolActive}
             onAddSidewalk={addSidewalk}
             isEntranceToolActive={Boolean(entrancePlacementLabel)}
             onAddEntrance={activateEntranceTool}
@@ -791,6 +829,7 @@ export function SiteEditor() {
           selectedSidewalkId={selectedSidewalkId}
           selectedEntranceId={selectedEntranceId}
           isTreeToolActive={isTreeToolActive}
+          isSidewalkToolActive={isSidewalkToolActive}
           isEntranceToolActive={Boolean(entrancePlacementLabel)}
           backgroundImageSrc={backgroundView === "full" ? fullPageImageSrc : backgroundImageSrc}
           backgroundMeta={backgroundMeta}
@@ -805,7 +844,6 @@ export function SiteEditor() {
               setSelectedTreeId(undefined);
               setSelectedSidewalkId(undefined);
               setSelectedEntranceId(undefined);
-              setIsTreeToolActive(false);
               setEntrancePlacementLabel(undefined);
             }
           }}
@@ -816,7 +854,6 @@ export function SiteEditor() {
               setSelectedTreeId(undefined);
               setSelectedSidewalkId(undefined);
               setSelectedEntranceId(undefined);
-              setIsTreeToolActive(false);
               setEntrancePlacementLabel(undefined);
             }
           }}
@@ -830,6 +867,7 @@ export function SiteEditor() {
               setEntrancePlacementLabel(undefined);
             }
           }}
+          onEditTreeDiameter={openTreeDiameterDialog}
           onSelectSidewalk={(id) => {
             setSelectedSidewalkId(id);
             if (id) {
@@ -837,7 +875,6 @@ export function SiteEditor() {
               setSelectedSiteLabelId(undefined);
               setSelectedTreeId(undefined);
               setSelectedEntranceId(undefined);
-              setIsTreeToolActive(false);
               setEntrancePlacementLabel(undefined);
             }
           }}
@@ -848,12 +885,12 @@ export function SiteEditor() {
               setSelectedSiteLabelId(undefined);
               setSelectedTreeId(undefined);
               setSelectedSidewalkId(undefined);
-              setIsTreeToolActive(false);
               setEntrancePlacementLabel(undefined);
             }
           }}
           onPlaceEntrance={placeEntrance}
           onPlaceTree={placeTree}
+          onPlaceSidewalk={placeSidewalk}
           onChangeBuilding={upsertBuilding}
           onChangeSiteLabel={(label, recordHistory = true) => {
             if (recordHistory) recordCurrent();
@@ -943,6 +980,48 @@ export function SiteEditor() {
         onRename={renameConceptPlan}
         onDelete={removeConceptPlan}
       />
+      {treeDiameterDialogId ? (
+        <div
+          className="modalBackdrop"
+          role="presentation"
+          onMouseDown={() => setTreeDiameterDialogId(undefined)}
+        >
+          <form
+            className="saveLayoutDialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="tree-diameter-title"
+            onMouseDown={(event) => event.stopPropagation()}
+            onSubmit={(event) => {
+              event.preventDefault();
+              saveTreeDiameter();
+            }}
+          >
+            <h2 id="tree-diameter-title">Tree Diameter (m)</h2>
+            <label>
+              <span>Tree Diameter (m)</span>
+              <input
+                autoFocus
+                type="number"
+                min="0.1"
+                step="0.1"
+                value={treeDiameterDraft}
+                onChange={(event) => setTreeDiameterDraft(event.target.value)}
+              />
+            </label>
+            <div className="dialogActions">
+              <button
+                className="secondaryButton"
+                type="button"
+                onClick={() => setTreeDiameterDialogId(undefined)}
+              >
+                Cancel
+              </button>
+              <button type="submit">Save</button>
+            </div>
+          </form>
+        </div>
+      ) : null}
       {projectDialogMode ? (
         <div className="modalBackdrop" role="presentation" onMouseDown={() => setProjectDialogMode(undefined)}>
           <form
@@ -1010,13 +1089,6 @@ function cloneSidewalks(sidewalks: Sidewalk[]) {
 
 function cloneEntrances(entrances: Entrance[]) {
   return entrances.map((entrance) => ({ ...entrance }));
-}
-
-function parseSidewalkEdge(value: string): SidewalkEdge | undefined {
-  const normalized = value.trim().toLowerCase();
-  return normalized === "top" || normalized === "bottom" || normalized === "left" || normalized === "right"
-    ? normalized
-    : undefined;
 }
 
 function parseEntranceLabel(value: string): EntranceLabel | undefined {

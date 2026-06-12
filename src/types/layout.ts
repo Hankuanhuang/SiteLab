@@ -157,12 +157,13 @@ export interface Tree {
   radius: number;
 }
 
-export type SidewalkEdge = "top" | "bottom" | "left" | "right";
-
 export interface Sidewalk {
   id: string;
   type: "sidewalk";
-  edge: SidewalkEdge;
+  edgeIndex: number;
+  start: ContextPoint;
+  end: ContextPoint;
+  normal: ContextPoint;
   width: number;
   label: string;
 }

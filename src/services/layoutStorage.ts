@@ -9,7 +9,6 @@ import type {
   ExistingTree,
   LayoutExport,
   Sidewalk,
-  SidewalkEdge,
   SiteDimensions,
   SiteLabel,
   SiteShape,
@@ -107,6 +106,9 @@ export function buildLayoutJson(
     sidewalks: sidewalks.map((sidewalk) => ({
       ...sidewalk,
       width: round(sidewalk.width),
+      start: { x: round(sidewalk.start.x), y: round(sidewalk.start.y) },
+      end: { x: round(sidewalk.end.x), y: round(sidewalk.end.y) },
+      normal: { x: round(sidewalk.normal.x), y: round(sidewalk.normal.y) },
     })),
     contextZones: contextZones.map((zone) => ({
       ...zone,
@@ -211,7 +213,7 @@ export function parseLayoutJson(
   if (siteLabels === undefined) return undefined;
   const trees = readTrees(value.trees);
   if (trees === undefined) return undefined;
-  const sidewalks = readSidewalks(value.sidewalks);
+  const sidewalks = readSidewalks(value.sidewalks, { length, width });
   if (sidewalks === undefined) return undefined;
   const contextZones = readContextZones(value.contextZones);
   if (contextZones === undefined) return undefined;
@@ -355,20 +357,39 @@ function readTrees(value: unknown): Tree[] | undefined {
   return trees.some((tree) => tree === undefined) ? undefined : (trees as Tree[]);
 }
 
-function readSidewalks(value: unknown): Sidewalk[] | undefined {
+function readSidewalks(
+  value: unknown,
+  site: { length: number; width: number },
+): Sidewalk[] | undefined {
   if (value === undefined) return [];
   if (!Array.isArray(value)) return undefined;
 
   const sidewalks = value.map((item) => {
     if (!isRecord(item) || item.type !== "sidewalk") return undefined;
-    const edge = readSidewalkEdge(item.edge);
     const width = readPositiveNumber(item.width);
-    if (!edge || width === undefined) return undefined;
+    const start = readPoint(item.start);
+    const end = readPoint(item.end);
+    const normal = readPoint(item.normal);
+    const edgeIndex = readNumber(item.edgeIndex);
+    if (start && end && normal && edgeIndex !== undefined && width !== undefined) {
+      return {
+        id: typeof item.id === "string" && item.id ? item.id : crypto.randomUUID(),
+        type: "sidewalk" as const,
+        edgeIndex: Math.max(0, Math.floor(edgeIndex)),
+        start,
+        end,
+        normal,
+        width,
+        label: typeof item.label === "string" ? item.label : "Sidewalk",
+      };
+    }
 
+    const legacy = readLegacySidewalk(item.edge, site);
+    if (!legacy || width === undefined) return undefined;
     return {
       id: typeof item.id === "string" && item.id ? item.id : crypto.randomUUID(),
       type: "sidewalk" as const,
-      edge,
+      ...legacy,
       width,
       label: typeof item.label === "string" ? item.label : "Sidewalk",
     };
@@ -379,10 +400,12 @@ function readSidewalks(value: unknown): Sidewalk[] | undefined {
     : (sidewalks as Sidewalk[]);
 }
 
-function readSidewalkEdge(value: unknown): SidewalkEdge | undefined {
-  return value === "top" || value === "bottom" || value === "left" || value === "right"
-    ? value
-    : undefined;
+function readLegacySidewalk(value: unknown, site: { length: number; width: number }) {
+  if (value === "top") return { edgeIndex: 0, start: { x: 0, y: 0 }, end: { x: site.width, y: 0 }, normal: { x: 0, y: 1 } };
+  if (value === "right") return { edgeIndex: 1, start: { x: site.width, y: 0 }, end: { x: site.width, y: site.length }, normal: { x: -1, y: 0 } };
+  if (value === "bottom") return { edgeIndex: 2, start: { x: site.width, y: site.length }, end: { x: 0, y: site.length }, normal: { x: 0, y: -1 } };
+  if (value === "left") return { edgeIndex: 3, start: { x: 0, y: site.length }, end: { x: 0, y: 0 }, normal: { x: 1, y: 0 } };
+  return undefined;
 }
 
 function readContextZones(value: unknown): ContextZone[] | undefined {
@@ -591,6 +614,13 @@ function readPoints(value: unknown): Array<{ x: number; y: number }> | undefined
   return points.some((point) => point === undefined)
     ? undefined
     : (points as Array<{ x: number; y: number }>);
+}
+
+function readPoint(value: unknown): { x: number; y: number } | undefined {
+  if (!isRecord(value)) return undefined;
+  const x = readNumber(value.x);
+  const y = readNumber(value.y);
+  return x === undefined || y === undefined ? undefined : { x, y };
 }
 
 function readPositiveNumbers(value: unknown): number[] | undefined {

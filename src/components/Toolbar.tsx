@@ -8,6 +8,7 @@ interface ToolbarProps {
   onAddToilet: () => void;
   isTreeToolActive: boolean;
   onToggleTreeTool: () => void;
+  isSidewalkToolActive: boolean;
   onAddSidewalk: () => void;
   isEntranceToolActive: boolean;
   onAddEntrance: () => void;
@@ -34,6 +35,7 @@ export function Toolbar({
   onAddToilet,
   isTreeToolActive,
   onToggleTreeTool,
+  isSidewalkToolActive,
   onAddSidewalk,
   isEntranceToolActive,
   onAddEntrance,
@@ -77,8 +79,8 @@ export function Toolbar({
       >
         {isTreeToolActive ? "Tree Tool Active" : "+ Tree"}
       </button>
-      <button type="button" onClick={onAddSidewalk}>
-        + Sidewalk
+      <button className="createToolButton" type="button" onClick={onAddSidewalk}>
+        {isSidewalkToolActive ? "Sidewalk Tool Active" : "+ Sidewalk"}
       </button>
       <button
         className="createToolButton"

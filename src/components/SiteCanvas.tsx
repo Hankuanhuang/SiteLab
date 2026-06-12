@@ -16,6 +16,7 @@ import type {
   SetupRoad,
 } from "../types/layout";
 import type { Tree } from "../types/layout";
+import { getSidewalkPoints, getUnitNormal } from "../utils/sidewalkGeometry";
 import { BuildingShape } from "./BuildingShape";
 
 interface SiteCanvasProps {
@@ -31,6 +32,7 @@ interface SiteCanvasProps {
   selectedSidewalkId?: string;
   selectedEntranceId?: string;
   isTreeToolActive: boolean;
+  isSidewalkToolActive: boolean;
   isEntranceToolActive: boolean;
   backgroundImageSrc?: string;
   backgroundMeta?: PdfBackgroundMeta;
@@ -41,10 +43,12 @@ interface SiteCanvasProps {
   onSelectBuilding: (id?: string) => void;
   onSelectSiteLabel: (id?: string) => void;
   onSelectTree: (id?: string) => void;
+  onEditTreeDiameter: (tree: Tree) => void;
   onSelectSidewalk: (id?: string) => void;
   onSelectEntrance: (id?: string) => void;
   onPlaceEntrance: (building: Building, localX: number, localY: number) => void;
   onPlaceTree: (x: number, y: number) => void;
+  onPlaceSidewalk: (sidewalk: Omit<Sidewalk, "id" | "type" | "width" | "label">) => void;
   onChangeBuilding: (building: Building, recordHistory?: boolean) => void;
   onChangeSiteLabel: (label: SiteLabel, recordHistory?: boolean) => void;
   onChangeTree: (tree: Tree, recordHistory?: boolean) => void;
@@ -83,6 +87,7 @@ export function SiteCanvas({
   selectedSidewalkId,
   selectedEntranceId,
   isTreeToolActive,
+  isSidewalkToolActive,
   isEntranceToolActive,
   backgroundImageSrc,
   backgroundMeta,
@@ -93,10 +98,12 @@ export function SiteCanvas({
   onSelectBuilding,
   onSelectSiteLabel,
   onSelectTree,
+  onEditTreeDiameter,
   onSelectSidewalk,
   onSelectEntrance,
   onPlaceEntrance,
   onPlaceTree,
+  onPlaceSidewalk,
   onChangeBuilding,
   onChangeSiteLabel,
   onChangeTree,
@@ -107,6 +114,8 @@ export function SiteCanvas({
   const wrapRef = useRef<HTMLDivElement>(null);
   const [backgroundImage, setBackgroundImage] = useState<HTMLImageElement>();
   const [viewport, setViewport] = useState(minimumStageSize);
+  const [hoveredBoundaryEdge, setHoveredBoundaryEdge] = useState<number>();
+  const [sidewalkPreview, setSidewalkPreview] = useState<Sidewalk>();
   const fullPage = backgroundMeta?.page ?? {
     width: site.width,
     height: site.length,
@@ -154,6 +163,7 @@ export function SiteCanvas({
           (point.y - backgroundMeta.siteBoundary.y) * pageScale,
         ])
       : [];
+  const boundaryVertices = getBoundaryVertices(site, backgroundMeta);
   const buildingScale = {
     x: boundary.width / site.width,
     y: boundary.height / site.length,
@@ -217,8 +227,6 @@ export function SiteCanvas({
   }, [fitToScreen]);
 
   const handleEmptyCanvasPointer = (event: Konva.KonvaEventObject<MouseEvent | TouchEvent>) => {
-    if (event.target !== event.target.getStage()) return;
-
     if (isTreeToolActive) {
       const pointer = event.target.getStage()?.getPointerPosition();
       if (!pointer) return;
@@ -250,12 +258,63 @@ export function SiteCanvas({
       return;
     }
 
+    if (event.target !== event.target.getStage()) return;
+
     onSelectBuilding(undefined);
     onSelectSiteLabel(undefined);
     onSelectTree(undefined);
     onSelectSidewalk(undefined);
     onSelectEntrance(undefined);
   };
+
+  const updateSidewalkPreview = (event: Konva.KonvaEventObject<MouseEvent | TouchEvent>) => {
+    if (isTreeToolActive) {
+      event.target.getStage()!.container().style.cursor = "crosshair";
+      return;
+    }
+    if (!isSidewalkToolActive) return;
+    const pointer = event.target.getStage()?.getPointerPosition();
+    if (!pointer) return;
+    const localPixel = { x: pointer.x - boundary.x, y: pointer.y - boundary.y };
+    const edge = findNearestBoundaryEdge(localPixel, boundaryVertices, buildingScale);
+    event.target.getStage()!.container().style.cursor = edge && edge.distance <= 14 ? "pointer" : "crosshair";
+    if (!edge || edge.distance > 14) {
+      setHoveredBoundaryEdge(undefined);
+      setSidewalkPreview(undefined);
+      return;
+    }
+
+    const cursor = {
+      x: localPixel.x / buildingScale.x,
+      y: localPixel.y / buildingScale.y,
+    };
+    setHoveredBoundaryEdge(edge.index);
+    setSidewalkPreview({
+      id: "sidewalk-preview",
+      type: "sidewalk",
+      edgeIndex: edge.index,
+      start: edge.start,
+      end: edge.end,
+      normal: getUnitNormal(edge.start, edge.end, cursor),
+      width: 6,
+      label: "Sidewalk",
+    });
+  };
+
+  useEffect(() => {
+    const stage = wrapRef.current?.querySelector(".konvajs-content");
+    if (!(stage instanceof HTMLElement)) return;
+    stage.style.cursor = isTreeToolActive ? "crosshair" : "";
+  }, [isTreeToolActive]);
+
+  useEffect(() => {
+    if (!isSidewalkToolActive) {
+      setHoveredBoundaryEdge(undefined);
+      setSidewalkPreview(undefined);
+      const stage = wrapRef.current?.querySelector(".konvajs-content");
+      if (stage instanceof HTMLElement) stage.style.cursor = "";
+    }
+  }, [isSidewalkToolActive]);
 
   return (
     <div
@@ -274,6 +333,14 @@ export function SiteCanvas({
         height={viewport.height}
         onMouseDown={handleEmptyCanvasPointer}
         onTouchStart={handleEmptyCanvasPointer}
+        onMouseMove={updateSidewalkPreview}
+        onTouchMove={updateSidewalkPreview}
+        onMouseLeave={() => {
+          setHoveredBoundaryEdge(undefined);
+          setSidewalkPreview(undefined);
+          const stage = wrapRef.current?.querySelector(".konvajs-content");
+          if (stage instanceof HTMLElement) stage.style.cursor = "";
+        }}
       >
         <Layer x={pageOffset.x} y={pageOffset.y} listening={false}>
           {shouldShowBackground && backgroundImage ? (
@@ -363,12 +430,66 @@ export function SiteCanvas({
             fontSize={16}
           />
         </Layer>
-        <Layer x={boundary.x} y={boundary.y}>
+        {isSidewalkToolActive ? (
+          <Layer x={boundary.x} y={boundary.y}>
+            {boundaryVertices.map((start, index) => {
+              const end = boundaryVertices[(index + 1) % boundaryVertices.length];
+              return (
+                <Line
+                  key={index}
+                  points={[
+                    start.x * buildingScale.x,
+                    start.y * buildingScale.y,
+                    end.x * buildingScale.x,
+                    end.y * buildingScale.y,
+                  ]}
+                  stroke={hoveredBoundaryEdge === index ? "#f97316" : "rgba(15, 118, 110, 0.38)"}
+                  strokeWidth={hoveredBoundaryEdge === index ? 6 : 3}
+                  hitStrokeWidth={28}
+                  lineCap="round"
+                  onClick={() => {
+                    if (sidewalkPreview?.edgeIndex === index) {
+                      onPlaceSidewalk({
+                        edgeIndex: index,
+                        start: sidewalkPreview.start,
+                        end: sidewalkPreview.end,
+                        normal: sidewalkPreview.normal,
+                      });
+                    }
+                  }}
+                  onTap={() => {
+                    if (sidewalkPreview?.edgeIndex === index) {
+                      onPlaceSidewalk({
+                        edgeIndex: index,
+                        start: sidewalkPreview.start,
+                        end: sidewalkPreview.end,
+                        normal: sidewalkPreview.normal,
+                      });
+                    }
+                  }}
+                />
+              );
+            })}
+            {sidewalkPreview ? (
+              <SidewalkShape
+                sidewalk={sidewalkPreview}
+                scale={buildingScale}
+                isSelected
+                isPreview
+                onSelect={() => undefined}
+              />
+            ) : null}
+          </Layer>
+        ) : null}
+        <Layer
+          x={boundary.x}
+          y={boundary.y}
+          listening={!isSidewalkToolActive && !isTreeToolActive}
+        >
           {sidewalks.map((sidewalk) => (
             <SidewalkShape
               key={sidewalk.id}
               sidewalk={sidewalk}
-              site={site}
               scale={buildingScale}
               isSelected={sidewalk.id === selectedSidewalkId}
               onSelect={() => onSelectSidewalk(sidewalk.id)}
@@ -410,6 +531,7 @@ export function SiteCanvas({
               analysisBounds={analysisBounds}
               isSelected={tree.id === selectedTreeId}
               onSelect={() => onSelectTree(tree.id)}
+              onEditDiameter={() => onEditTreeDiameter(tree)}
               onChange={(nextTree) => onChangeTree(nextTree, false)}
               onEditStart={onBeginBuildingEdit}
               onEditEnd={onEndBuildingEdit}
@@ -828,91 +950,103 @@ function ContextZoneShape({
 
 function SidewalkShape({
   sidewalk,
-  site,
   scale,
   isSelected,
+  isPreview = false,
   onSelect,
 }: {
   sidewalk: Sidewalk;
-  site: SiteDimensions;
   scale: { x: number; y: number };
   isSelected: boolean;
+  isPreview?: boolean;
   onSelect: () => void;
 }) {
-  const geometry = getSidewalkGeometry(sidewalk, site, scale);
-  const hatchSpacing = 14;
-  const hatchCount = Math.ceil((geometry.width + geometry.height) / hatchSpacing) + 1;
+  const points = getSidewalkPoints(sidewalk).flatMap((point) => [
+    point.x * scale.x,
+    point.y * scale.y,
+  ]);
+  const center = getFlatPointsCenter(points);
 
   return (
-    <Group
-      x={geometry.x}
-      y={geometry.y}
-      clipX={0}
-      clipY={0}
-      clipWidth={geometry.width}
-      clipHeight={geometry.height}
-      onClick={onSelect}
-      onTap={onSelect}
-    >
-      <Rect
-        width={geometry.width}
-        height={geometry.height}
-        fill="#e5e7eb"
+    <Group onClick={onSelect} onTap={onSelect} listening={!isPreview}>
+      <Line
+        points={points}
+        closed
+        fill={isPreview ? "rgba(249, 115, 22, 0.22)" : "#e5e7eb"}
         stroke={isSelected ? "#f97316" : "#9ca3af"}
         strokeWidth={isSelected ? 3 : 1.5}
+        dash={isPreview ? [10, 6] : undefined}
       />
-      {Array.from({ length: hatchCount }, (_, index) => {
-        const offset = index * hatchSpacing - geometry.height;
-        return (
-          <Line
-            key={offset}
-            points={[offset, geometry.height, offset + geometry.height, 0]}
-            stroke="#c1c7cd"
-            strokeWidth={1}
-            listening={false}
-          />
-        );
-      })}
-      <Text
-        x={0}
-        y={Math.max(0, geometry.height / 2 - 9)}
-        width={geometry.width}
-        text={sidewalk.label}
-        fill="#4b5563"
-        fontSize={14}
-        fontStyle="bold"
-        align="center"
-        listening={false}
-      />
+      {!isPreview ? (
+        <Text
+          x={center.x - 60}
+          y={center.y - 9}
+          width={120}
+          text={sidewalk.label}
+          fill="#4b5563"
+          fontSize={14}
+          fontStyle="bold"
+          align="center"
+          listening={false}
+        />
+      ) : null}
     </Group>
   );
 }
 
-function getSidewalkGeometry(
-  sidewalk: Sidewalk,
-  site: SiteDimensions,
+function getBoundaryVertices(site: SiteDimensions, backgroundMeta?: PdfBackgroundMeta) {
+  const boundary = backgroundMeta?.siteBoundary;
+  if (backgroundMeta?.siteShape === "polygon" && boundary?.polygon?.length && boundary.width && boundary.height) {
+    return boundary.polygon.map((point) => ({
+      x: ((point.x - boundary.x) / boundary.width) * site.width,
+      y: ((point.y - boundary.y) / boundary.height) * site.length,
+    }));
+  }
+
+  return [
+    { x: 0, y: 0 },
+    { x: site.width, y: 0 },
+    { x: site.width, y: site.length },
+    { x: 0, y: site.length },
+  ];
+}
+
+function findNearestBoundaryEdge(
+  pointer: { x: number; y: number },
+  vertices: Array<{ x: number; y: number }>,
   scale: { x: number; y: number },
 ) {
-  const widthMeters = Math.min(
-    sidewalk.width,
-    sidewalk.edge === "top" || sidewalk.edge === "bottom" ? site.length : site.width,
-  );
-  const siteWidth = site.width * scale.x;
-  const siteHeight = site.length * scale.y;
+  return vertices
+    .map((start, index) => {
+      const end = vertices[(index + 1) % vertices.length];
+      return {
+        index,
+        start,
+        end,
+        distance: distanceToSegment(
+          pointer,
+          { x: start.x * scale.x, y: start.y * scale.y },
+          { x: end.x * scale.x, y: end.y * scale.y },
+        ),
+      };
+    })
+    .reduce((nearest, edge) => (!nearest || edge.distance < nearest.distance ? edge : nearest), undefined as
+      | { index: number; start: { x: number; y: number }; end: { x: number; y: number }; distance: number }
+      | undefined);
+}
 
-  if (sidewalk.edge === "top") {
-    return { x: 0, y: 0, width: siteWidth, height: widthMeters * scale.y };
-  }
-  if (sidewalk.edge === "bottom") {
-    const height = widthMeters * scale.y;
-    return { x: 0, y: siteHeight - height, width: siteWidth, height };
-  }
-  if (sidewalk.edge === "left") {
-    return { x: 0, y: 0, width: widthMeters * scale.x, height: siteHeight };
-  }
-
-  const width = widthMeters * scale.x;
-  return { x: siteWidth - width, y: 0, width, height: siteHeight };
+function distanceToSegment(
+  point: { x: number; y: number },
+  start: { x: number; y: number },
+  end: { x: number; y: number },
+) {
+  const dx = end.x - start.x;
+  const dy = end.y - start.y;
+  const lengthSquared = dx * dx + dy * dy;
+  const t = lengthSquared
+    ? Math.max(0, Math.min(1, ((point.x - start.x) * dx + (point.y - start.y) * dy) / lengthSquared))
+    : 0;
+  return Math.hypot(point.x - (start.x + t * dx), point.y - (start.y + t * dy));
 }
 
 function TreeShape({
@@ -921,6 +1055,7 @@ function TreeShape({
   analysisBounds,
   isSelected,
   onSelect,
+  onEditDiameter,
   onChange,
   onEditStart,
   onEditEnd,
@@ -930,31 +1065,51 @@ function TreeShape({
   analysisBounds: AnalysisBounds;
   isSelected: boolean;
   onSelect: () => void;
+  onEditDiameter: () => void;
   onChange: (tree: Tree) => void;
   onEditStart: () => void;
   onEditEnd: () => void;
 }) {
   const radiusPx = tree.radius * Math.min(scale.x, scale.y);
+  const [isHandleHovered, setIsHandleHovered] = useState(false);
+
+  const setStageCursor = (event: Konva.KonvaEventObject<MouseEvent | TouchEvent>, cursor: string) => {
+    const stage = event.target.getStage();
+    if (stage) stage.container().style.cursor = cursor;
+  };
 
   return (
     <Group
       x={tree.x * scale.x}
       y={tree.y * scale.y}
-      draggable
-      onClick={onSelect}
-      onTap={onSelect}
       onDragStart={onEditStart}
       onDragMove={(event) => {
         const next = keepAnalysisNodeInside(event.target, analysisBounds, scale);
         onChange({ ...tree, x: next.x, y: next.y });
       }}
-      onDragEnd={onEditEnd}
+      onDragEnd={(event) => {
+        event.target.draggable(false);
+        onEditEnd();
+        setStageCursor(event, isHandleHovered ? "move" : "");
+      }}
     >
       <Circle
         radius={radiusPx}
         fill="rgba(34, 197, 94, 0.28)"
         stroke={isSelected ? "#f97316" : "#166534"}
         strokeWidth={isSelected ? 3 : 2}
+        onClick={onSelect}
+        onTap={onSelect}
+        onDblClick={(event) => {
+          event.cancelBubble = true;
+          onSelect();
+          onEditDiameter();
+        }}
+        onDblTap={(event) => {
+          event.cancelBubble = true;
+          onSelect();
+          onEditDiameter();
+        }}
       />
       <Text
         x={-radiusPx}
@@ -967,8 +1122,80 @@ function TreeShape({
         align="center"
         listening={false}
       />
+      <Circle
+        radius={isHandleHovered ? 7 : isSelected ? 6 : 4.5}
+        fill={isHandleHovered ? "#fb923c" : isSelected ? "#f97316" : "#166534"}
+        stroke="#ffffff"
+        strokeWidth={2}
+        shadowColor="rgba(15, 23, 42, 0.28)"
+        shadowBlur={4}
+        hitStrokeWidth={12}
+        onMouseEnter={(event) => {
+          setIsHandleHovered(true);
+          setStageCursor(event, "move");
+        }}
+        onDblClick={(event) => {
+          event.cancelBubble = true;
+          onSelect();
+          onEditDiameter();
+        }}
+        onDblTap={(event) => {
+          event.cancelBubble = true;
+          onSelect();
+          onEditDiameter();
+        }}
+        onMouseLeave={(event) => {
+          setIsHandleHovered(false);
+          if (!event.target.isDragging()) setStageCursor(event, "");
+        }}
+        onMouseDown={(event) => {
+          event.cancelBubble = true;
+          onSelect();
+          const group = event.target.getParent();
+          const stage = event.target.getStage();
+          const parent = group?.getParent();
+          const pointer = stage?.getPointerPosition();
+          if (!group || !parent || !pointer) return;
+
+          const localPointer = parent.getAbsoluteTransform().copy().invert().point(pointer);
+          group.position(localPointer);
+          group.draggable(true);
+          group.startDrag();
+        }}
+        onTouchStart={(event) => {
+          event.cancelBubble = true;
+          onSelect();
+          const group = event.target.getParent();
+          const stage = event.target.getStage();
+          const parent = group?.getParent();
+          const pointer = stage?.getPointerPosition();
+          if (!group || !parent || !pointer) return;
+
+          const localPointer = parent.getAbsoluteTransform().copy().invert().point(pointer);
+          group.position(localPointer);
+          group.draggable(true);
+          group.startDrag();
+        }}
+      />
+      {isSelected ? (
+        <Text
+          x={-70}
+          y={radiusPx + 10}
+          width={140}
+          text={`Diameter: ${formatMeters(tree.radius * 2)}m`}
+          fill="#14532d"
+          fontSize={13}
+          fontStyle="bold"
+          align="center"
+          listening={false}
+        />
+      ) : null}
     </Group>
   );
+}
+
+function formatMeters(value: number) {
+  return Number.isInteger(value) ? String(value) : value.toFixed(1);
 }
 
 function SiteLabelShape({

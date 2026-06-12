@@ -46,6 +46,12 @@ type SelectionMode =
   | "existingBuildingPolygon"
   | "existingTree";
 
+function getSelectionStepClass(isActive: boolean, isCompleted: boolean) {
+  if (isActive) return "selectionStep selectionStep--active";
+  if (isCompleted) return "selectionStep selectionStep--completed";
+  return "selectionStep";
+}
+
 export function PdfSiteSetup() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const viewportRef = useRef<HTMLDivElement>(null);
@@ -1287,6 +1293,17 @@ export function PdfSiteSetup() {
     }
   };
 
+  const boundaryModeActive =
+    selectionMode === "boundaryRectangle" || selectionMode === "boundaryPolygon";
+  const ancillaryModeActive =
+    selectionMode === "ancillaryRectangle" || selectionMode === "ancillaryPolygon";
+  const greenParkModeActive =
+    selectionMode === "greenParkRectangle" || selectionMode === "greenParkPolygon";
+  const existingBuildingModeActive =
+    selectionMode === "existingBuildingRectangle" ||
+    selectionMode === "existingBuildingPolygon";
+  const boundaryCompleted = Boolean(boundarySelection || polygonBoundary.length >= 3);
+
   return (
     <main className="setupPage">
       <header className="setupHeader">
@@ -1365,7 +1382,7 @@ export function PdfSiteSetup() {
             <p className="eyebrow">Selection Mode</p>
             <div className="selectionModeControls">
               <button
-                className={selectionMode === "crop" ? "cropToolActive" : "secondaryButton"}
+                className={getSelectionStepClass(selectionMode === "crop", Boolean(cropSelection))}
                 type="button"
                 disabled={!pdfDocument}
                 onClick={() => changeSelectionMode("crop")}
@@ -1373,11 +1390,7 @@ export function PdfSiteSetup() {
                 Crop Site Image
               </button>
               <button
-                className={
-                  selectionMode === "boundaryRectangle" || selectionMode === "boundaryPolygon"
-                    ? ""
-                    : "secondaryButton"
-                }
+                className={getSelectionStepClass(boundaryModeActive, boundaryCompleted)}
                 type="button"
                 disabled={!cropSelection}
                 onClick={() => {
@@ -1388,7 +1401,7 @@ export function PdfSiteSetup() {
                 Select Site Boundary
               </button>
               <button
-                className={selectionMode === "road" ? "" : "secondaryButton"}
+                className={getSelectionStepClass(selectionMode === "road", roads.length > 0)}
                 type="button"
                 disabled={!cropSelection}
                 onClick={openRoadTypeDialog}
@@ -1396,11 +1409,7 @@ export function PdfSiteSetup() {
                 Select Road
               </button>
               <button
-                className={
-                  selectionMode === "ancillaryRectangle" || selectionMode === "ancillaryPolygon"
-                    ? ""
-                    : "secondaryButton"
-                }
+                className={getSelectionStepClass(ancillaryModeActive, ancillaryBuildings.length > 0)}
                 type="button"
                 disabled={!cropSelection}
                 onClick={openAncillaryShapeDialog}
@@ -1408,12 +1417,10 @@ export function PdfSiteSetup() {
                 Select Ancillary Building
               </button>
               <button
-                className={
-                  selectionMode === "greenParkRectangle" ||
-                  selectionMode === "greenParkPolygon"
-                    ? ""
-                    : "secondaryButton"
-                }
+                className={getSelectionStepClass(
+                  greenParkModeActive,
+                  contextZones.some((zone) => zone.type === "greenPark"),
+                )}
                 type="button"
                 disabled={!cropSelection}
                 onClick={openGreenParkShapeDialog}
@@ -1421,12 +1428,10 @@ export function PdfSiteSetup() {
                 Select Green Park Area
               </button>
               <button
-                className={
-                  selectionMode === "existingBuildingRectangle" ||
-                  selectionMode === "existingBuildingPolygon"
-                    ? ""
-                    : "secondaryButton"
-                }
+                className={getSelectionStepClass(
+                  existingBuildingModeActive,
+                  existingBuildings.length > 0,
+                )}
                 type="button"
                 disabled={!cropSelection}
                 onClick={openExistingBuildingShapeDialog}
@@ -1434,7 +1439,10 @@ export function PdfSiteSetup() {
                 Select Existing Building
               </button>
               <button
-                className={selectionMode === "existingTree" ? "" : "secondaryButton"}
+                className={getSelectionStepClass(
+                  selectionMode === "existingTree",
+                  existingTrees.length > 0,
+                )}
                 type="button"
                 disabled={!cropSelection}
                 onClick={openTreeSizeDialog}

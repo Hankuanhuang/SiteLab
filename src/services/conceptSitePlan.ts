@@ -7,6 +7,7 @@ import type {
   SiteShape,
   Tree,
 } from "../types/layout";
+import { getSidewalkPoints } from "../utils/sidewalkGeometry";
 
 const exportWidth = 4200;
 const exportHeight = 3000;
@@ -246,46 +247,35 @@ function drawSidewalks(
   scale: number,
 ) {
   sidewalks.forEach((sidewalk) => {
-    const width = Math.min(
-      sidewalk.width,
-      sidewalk.edge === "top" || sidewalk.edge === "bottom" ? site.length : site.width,
+    const points = getSidewalkPoints(sidewalk).map((point) => ({
+      x: origin.x + point.x * scale,
+      y: origin.y + point.y * scale,
+    }));
+    const center = points.reduce(
+      (sum, point) => ({ x: sum.x + point.x / points.length, y: sum.y + point.y / points.length }),
+      { x: 0, y: 0 },
     );
-    const geometry =
-      sidewalk.edge === "top"
-        ? { x: 0, y: 0, width: site.width, height: width }
-        : sidewalk.edge === "bottom"
-          ? { x: 0, y: site.length - width, width: site.width, height: width }
-          : sidewalk.edge === "left"
-            ? { x: 0, y: 0, width, height: site.length }
-            : { x: site.width - width, y: 0, width, height: site.length };
-    const x = origin.x + geometry.x * scale;
-    const y = origin.y + geometry.y * scale;
-    const renderedWidth = geometry.width * scale;
-    const renderedHeight = geometry.height * scale;
 
     context.save();
     context.fillStyle = "#f3f4f6";
     context.strokeStyle = "#6b7280";
     context.lineWidth = 4;
-    context.fillRect(x, y, renderedWidth, renderedHeight);
-    context.strokeRect(x, y, renderedWidth, renderedHeight);
     context.beginPath();
-    context.rect(x, y, renderedWidth, renderedHeight);
+    context.moveTo(points[0].x, points[0].y);
+    points.slice(1).forEach((point) => context.lineTo(point.x, point.y));
+    context.closePath();
+    context.fill();
+    context.stroke();
+    context.beginPath();
+    context.moveTo(points[0].x, points[0].y);
+    points.slice(1).forEach((point) => context.lineTo(point.x, point.y));
+    context.closePath();
     context.clip();
-    context.strokeStyle = "#9ca3af";
-    context.lineWidth = 2;
-    const spacing = 28;
-    for (let offset = -renderedHeight; offset < renderedWidth; offset += spacing) {
-      context.beginPath();
-      context.moveTo(x + offset, y + renderedHeight);
-      context.lineTo(x + offset + renderedHeight, y);
-      context.stroke();
-    }
     context.fillStyle = "#111827";
     context.font = "600 30px Arial";
     context.textAlign = "center";
     context.textBaseline = "middle";
-    context.fillText(sidewalk.label, x + renderedWidth / 2, y + renderedHeight / 2, Math.max(1, renderedWidth - 24));
+    context.fillText(sidewalk.label, center.x, center.y);
     context.restore();
   });
 }
