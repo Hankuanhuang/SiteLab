@@ -718,6 +718,7 @@ export function SiteEditor() {
         entrances,
         backgroundMeta?.roads,
         backgroundMeta?.ancillaryBuildings,
+        backgroundMeta?.crop,
         backgroundMeta?.siteBoundary,
         backgroundMeta?.existingBuildings,
         backgroundMeta?.existingTrees,

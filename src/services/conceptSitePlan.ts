@@ -34,6 +34,7 @@ export async function exportConceptSitePlan(
   entrances: Entrance[] = [],
   roads: SetupRoad[] = [],
   ancillaryBuildings: AncillaryBuilding[] = [],
+  crop?: PdfBackgroundMeta["crop"],
   siteBoundary?: PdfBackgroundMeta["siteBoundary"],
   existingBuildings: ExistingBuilding[] = [],
   existingTrees: ExistingTree[] = [],
@@ -56,39 +57,86 @@ export async function exportConceptSitePlan(
 
   const availableWidth = exportWidth - drawingMargin * 2;
   const availableHeight = exportHeight - drawingMargin * 2 - titleBlockHeight;
-  const scale = Math.min(availableWidth / site.width, availableHeight / site.length);
+  const analysisBounds = getExportAnalysisBounds(site, crop, siteBoundary);
+  const exportPlanWidth = analysisBounds.maxX - analysisBounds.minX;
+  const exportPlanHeight = analysisBounds.maxY - analysisBounds.minY;
+  const scale = Math.min(availableWidth / exportPlanWidth, availableHeight / exportPlanHeight);
+  const scaledPlanWidth = exportPlanWidth * scale;
+  const scaledPlanHeight = exportPlanHeight * scale;
+  const planOrigin = {
+    x: drawingMargin + (availableWidth - scaledPlanWidth) / 2,
+    y: drawingMargin + (availableHeight - scaledPlanHeight) / 2,
+  };
+  const origin = {
+    x: planOrigin.x + (0 - analysisBounds.minX) * scale,
+    y: planOrigin.y + (0 - analysisBounds.minY) * scale,
+  };
   const siteWidth = site.width * scale;
   const siteHeight = site.length * scale;
-  const origin = {
-    x: drawingMargin + (availableWidth - siteWidth) / 2,
-    y: drawingMargin + (availableHeight - siteHeight) / 2,
-  };
 
   const backgroundImage = backgroundImageSrc
     ? await loadExportImage(backgroundImageSrc)
     : undefined;
-  if (backgroundImage && siteBoundary?.width && siteBoundary.height) {
+  if (backgroundImage && crop?.width && crop.height && siteBoundary?.width && siteBoundary.height) {
     drawBackgroundImage(
       context,
       backgroundImage,
+      crop,
       siteBoundary,
-      origin,
-      siteWidth,
-      siteHeight,
-      siteShape,
-      siteVertices,
+      planOrigin,
+      exportPlanWidth,
+      exportPlanHeight,
       scale,
     );
   } else {
-    drawOpenSpacePattern(context, origin.x, origin.y, siteWidth, siteHeight);
+    drawOpenSpacePattern(context, planOrigin.x, planOrigin.y, scaledPlanWidth, scaledPlanHeight);
   }
 
   context.save();
-  clipSite(context, siteShape, siteVertices, origin, scale, siteWidth, siteHeight);
-  drawRoads(context, roads, site, siteBoundary, origin, scale, false);
-  drawAncillaryBuildings(context, ancillaryBuildings, site, siteBoundary, origin, scale, false);
-  drawExistingBuildings(context, existingBuildings, site, siteBoundary, origin, scale, false);
-  drawExistingTrees(context, existingTrees, site, siteBoundary, origin, scale);
+  clipPlan(context, planOrigin, scaledPlanWidth, scaledPlanHeight);
+  drawRoads(
+    context,
+    roads,
+    site,
+    siteBoundary,
+    planOrigin,
+    analysisBounds.minX,
+    analysisBounds.minY,
+    scale,
+    false,
+  );
+  drawAncillaryBuildings(
+    context,
+    ancillaryBuildings,
+    site,
+    siteBoundary,
+    planOrigin,
+    analysisBounds.minX,
+    analysisBounds.minY,
+    scale,
+    false,
+  );
+  drawExistingBuildings(
+    context,
+    existingBuildings,
+    site,
+    siteBoundary,
+    planOrigin,
+    analysisBounds.minX,
+    analysisBounds.minY,
+    scale,
+    false,
+  );
+  drawExistingTrees(
+    context,
+    existingTrees,
+    site,
+    siteBoundary,
+    planOrigin,
+    analysisBounds.minX,
+    analysisBounds.minY,
+    scale,
+  );
   context.restore();
 
   if (siteShape === "polygon" && siteVertices.length >= 3) {
@@ -107,10 +155,40 @@ export async function exportConceptSitePlan(
   drawEntrances(context, entrances, origin, scale);
   drawSiteLabels(context, siteLabels, origin, scale);
   context.save();
-  clipSite(context, siteShape, siteVertices, origin, scale, siteWidth, siteHeight);
-  drawRoads(context, roads, site, siteBoundary, origin, scale, true);
-  drawAncillaryBuildings(context, ancillaryBuildings, site, siteBoundary, origin, scale, true);
-  drawExistingBuildings(context, existingBuildings, site, siteBoundary, origin, scale, true);
+  clipPlan(context, planOrigin, scaledPlanWidth, scaledPlanHeight);
+  drawRoads(
+    context,
+    roads,
+    site,
+    siteBoundary,
+    planOrigin,
+    analysisBounds.minX,
+    analysisBounds.minY,
+    scale,
+    true,
+  );
+  drawAncillaryBuildings(
+    context,
+    ancillaryBuildings,
+    site,
+    siteBoundary,
+    planOrigin,
+    analysisBounds.minX,
+    analysisBounds.minY,
+    scale,
+    true,
+  );
+  drawExistingBuildings(
+    context,
+    existingBuildings,
+    site,
+    siteBoundary,
+    planOrigin,
+    analysisBounds.minX,
+    analysisBounds.minY,
+    scale,
+    true,
+  );
   context.restore();
   drawNorthArrow(context, exportWidth - 330, 280);
   drawTitleBlock(context, projectName);
@@ -162,26 +240,17 @@ function loadExportImage(source: string) {
 function drawBackgroundImage(
   context: CanvasRenderingContext2D,
   image: HTMLImageElement,
-  boundary: PdfBackgroundMeta["siteBoundary"],
-  origin: { x: number; y: number },
-  siteWidth: number,
-  siteHeight: number,
-  siteShape: SiteShape,
-  siteVertices: Array<{ x: number; y: number }>,
+  _crop: PdfBackgroundMeta["crop"],
+  _boundary: PdfBackgroundMeta["siteBoundary"],
+  planOrigin: { x: number; y: number },
+  exportPlanWidth: number,
+  exportPlanHeight: number,
   scale: number,
 ) {
-  const scaleX = siteWidth / boundary.width;
-  const scaleY = siteHeight / boundary.height;
   context.save();
-  clipSite(context, siteShape, siteVertices, origin, scale, siteWidth, siteHeight);
   context.globalAlpha = 0.72;
-  context.drawImage(
-    image,
-    origin.x - boundary.x * scaleX,
-    origin.y - boundary.y * scaleY,
-    image.naturalWidth * scaleX,
-    image.naturalHeight * scaleY,
-  );
+  clipPlan(context, planOrigin, exportPlanWidth * scale, exportPlanHeight * scale);
+  context.drawImage(image, planOrigin.x, planOrigin.y, exportPlanWidth * scale, exportPlanHeight * scale);
   context.restore();
 }
 
@@ -342,12 +411,25 @@ function clipSite(
   context.clip();
 }
 
+function clipPlan(
+  context: CanvasRenderingContext2D,
+  origin: { x: number; y: number },
+  width: number,
+  height: number,
+) {
+  context.beginPath();
+  context.rect(origin.x, origin.y, width, height);
+  context.clip();
+}
+
 function drawRoads(
   context: CanvasRenderingContext2D,
   roads: SetupRoad[],
   site: SiteDimensions,
   boundary: PdfBackgroundMeta["siteBoundary"] | undefined,
-  origin: { x: number; y: number },
+  planOrigin: { x: number; y: number },
+  minX: number,
+  minY: number,
   scale: number,
   labelsOnly: boolean,
 ) {
@@ -355,7 +437,7 @@ function drawRoads(
 
   roads.forEach((road) => {
     const points = getConceptRoadPoints(road).map((point) =>
-      backgroundPointToExport(point, site, boundary, origin, scale),
+      backgroundPointToExport(point, site, boundary, planOrigin, minX, minY, scale),
     );
     if (points.length < 2) return;
     const roadWidth = Math.max(2, road.width * scale);
@@ -469,7 +551,9 @@ function drawAncillaryBuildings(
   buildings: AncillaryBuilding[],
   site: SiteDimensions,
   boundary: PdfBackgroundMeta["siteBoundary"] | undefined,
-  origin: { x: number; y: number },
+  planOrigin: { x: number; y: number },
+  minX: number,
+  minY: number,
   scale: number,
   labelsOnly: boolean,
 ) {
@@ -477,7 +561,7 @@ function drawAncillaryBuildings(
 
   buildings.forEach((building) => {
     const points = building.points.map((point) =>
-      backgroundPointToExport(point, site, boundary, origin, scale),
+      backgroundPointToExport(point, site, boundary, planOrigin, minX, minY, scale),
     );
     if (points.length < 3) return;
 
@@ -502,7 +586,9 @@ function drawExistingBuildings(
   buildings: ExistingBuilding[],
   site: SiteDimensions,
   boundary: PdfBackgroundMeta["siteBoundary"] | undefined,
-  origin: { x: number; y: number },
+  planOrigin: { x: number; y: number },
+  minX: number,
+  minY: number,
   scale: number,
   labelsOnly: boolean,
 ) {
@@ -510,7 +596,7 @@ function drawExistingBuildings(
 
   buildings.forEach((building) => {
     const points = building.points.map((point) =>
-      backgroundPointToExport(point, site, boundary, origin, scale),
+      backgroundPointToExport(point, site, boundary, planOrigin, minX, minY, scale),
     );
     if (points.length < 3) return;
 
@@ -535,7 +621,9 @@ function drawExistingTrees(
   trees: ExistingTree[],
   site: SiteDimensions,
   boundary: PdfBackgroundMeta["siteBoundary"] | undefined,
-  origin: { x: number; y: number },
+  planOrigin: { x: number; y: number },
+  minX: number,
+  minY: number,
   scale: number,
 ) {
   if (!boundary?.width || !boundary.height) return;
@@ -544,7 +632,7 @@ function drawExistingTrees(
   const radiusScale = Math.min(scaleX, scaleY);
 
   trees.forEach((tree) => {
-    const center = backgroundPointToExport(tree, site, boundary, origin, scale);
+    const center = backgroundPointToExport(tree, site, boundary, planOrigin, minX, minY, scale);
     const radius = Math.max(3, tree.radius * radiusScale);
     context.save();
     context.fillStyle = "rgba(34, 197, 94, 0.35)";
@@ -592,14 +680,36 @@ function backgroundPointToExport(
   point: { x: number; y: number },
   site: SiteDimensions,
   boundary: PdfBackgroundMeta["siteBoundary"],
-  origin: { x: number; y: number },
+  planOrigin: { x: number; y: number },
+  minX: number,
+  minY: number,
   scale: number,
 ) {
+  const analysisX = ((point.x - boundary.x) / boundary.width) * site.width;
+  const analysisY = ((point.y - boundary.y) / boundary.height) * site.length;
   return {
-    x: origin.x + ((point.x - boundary.x) / boundary.width) * site.width * scale,
-    y: origin.y + ((point.y - boundary.y) / boundary.height) * site.length * scale,
+    x: planOrigin.x + (analysisX - minX) * scale,
+    y: planOrigin.y + (analysisY - minY) * scale,
   };
 }
+
+function getExportAnalysisBounds(
+  site: SiteDimensions,
+  crop: PdfBackgroundMeta["crop"] | undefined,
+  boundary: PdfBackgroundMeta["siteBoundary"] | undefined,
+) {
+  if (!crop || !boundary?.width || !boundary.height) {
+    return { minX: 0, maxX: site.width, minY: 0, maxY: site.length };
+  }
+
+  return {
+    minX: -(boundary.x / boundary.width) * site.width,
+    maxX: ((crop.width - boundary.x) / boundary.width) * site.width,
+    minY: -(boundary.y / boundary.height) * site.length,
+    maxY: ((crop.height - boundary.y) / boundary.height) * site.length,
+  };
+}
+
 
 function tracePolyline(
   context: CanvasRenderingContext2D,
