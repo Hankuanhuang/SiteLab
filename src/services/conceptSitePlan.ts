@@ -12,6 +12,10 @@ import type {
   SetupRoad,
   Tree,
 } from "../types/layout";
+import { DEFAULT_BUILDING_LABEL_FONT_SIZE } from "../models/Building";
+import { DEFAULT_PROJECT_NAME } from "./projectName";
+import { getEntranceAnnotationGap, getEntranceLabelCoordinates } from "../utils/entranceAnnotation";
+import { getToiletStallCount, getToiletVisualLayout } from "../utils/toiletLayout";
 import { getSidewalkPoints } from "../utils/sidewalkGeometry";
 
 const exportWidth = 4200;
@@ -39,7 +43,7 @@ export async function exportConceptSitePlan(
   existingBuildings: ExistingBuilding[] = [],
   existingTrees: ExistingTree[] = [],
   backgroundImageSrc?: string,
-  projectName = "Untitled Layout",
+  projectName = DEFAULT_PROJECT_NAME,
   siteShape: SiteShape = "rectangle",
   siteVertices: Array<{ x: number; y: number }> = [],
   edgeLengths: number[] = [],
@@ -81,8 +85,6 @@ export async function exportConceptSitePlan(
     drawBackgroundImage(
       context,
       backgroundImage,
-      crop,
-      siteBoundary,
       planOrigin,
       exportPlanWidth,
       exportPlanHeight,
@@ -240,8 +242,6 @@ function loadExportImage(source: string) {
 function drawBackgroundImage(
   context: CanvasRenderingContext2D,
   image: HTMLImageElement,
-  _crop: PdfBackgroundMeta["crop"],
-  _boundary: PdfBackgroundMeta["siteBoundary"],
   planOrigin: { x: number; y: number },
   exportPlanWidth: number,
   exportPlanHeight: number,
@@ -326,11 +326,18 @@ function drawEntrances(
     context.closePath();
     context.fill();
 
-    context.font = "700 28px Arial";
-    const labelWidth = context.measureText(entrance.label).width;
-    const labelHeight = 34;
-    const verticalGap = 18;
-    const horizontalGap = 9;
+    const labelFontSize = entrance.labelFontSize ?? 28;
+    context.font = `700 ${labelFontSize}px Arial`;
+    const labelMetrics = context.measureText(entrance.label.trim() || " ");
+    const labelSize = {
+      width: Math.max(1, labelMetrics.width),
+      height: Math.max(
+        1,
+        (labelMetrics.actualBoundingBoxAscent || labelFontSize * 0.75) +
+        (labelMetrics.actualBoundingBoxDescent || labelFontSize * 0.25),
+      ),
+    };
+    const labelGap = getEntranceAnnotationGap(labelFontSize);
     const arrowBounds = {
       minX: Math.min(tipX, tailX),
       maxX: Math.max(tipX, tailX),
@@ -340,14 +347,12 @@ function drawEntrances(
     const labelPosition = getExportEntranceLabelCoordinates(
       entrance.labelPosition,
       arrowBounds,
-      labelWidth,
-      labelHeight,
-      verticalGap,
-      horizontalGap,
+      labelSize,
+      labelGap,
     );
     context.textAlign = "left";
     context.textBaseline = "middle";
-    context.fillText(entrance.label, labelPosition.x, labelPosition.y + labelHeight / 2);
+    context.fillText(entrance.label, labelPosition.x, labelPosition.y + labelSize.height / 2);
     context.restore();
   });
 }
@@ -355,60 +360,10 @@ function drawEntrances(
 function getExportEntranceLabelCoordinates(
   position: Entrance["labelPosition"],
   arrowBounds: { minX: number; maxX: number; minY: number; maxY: number },
-  labelWidth: number,
-  labelHeight: number,
-  verticalGap: number,
-  horizontalGap: number,
+  labelSize: { width: number; height: number },
+  gap: number,
 ) {
-  const arrowCenterX = (arrowBounds.minX + arrowBounds.maxX) / 2;
-  const arrowCenterY = (arrowBounds.minY + arrowBounds.maxY) / 2;
-
-  if (position === "top") {
-    return {
-      x: arrowCenterX - labelWidth / 2,
-      y: arrowBounds.minY - verticalGap - labelHeight,
-    };
-  }
-  if (position === "left") {
-    return {
-      x: arrowBounds.minX - horizontalGap - labelWidth,
-      y: arrowCenterY - labelHeight / 2,
-    };
-  }
-  if (position === "right") {
-    return {
-      x: arrowBounds.maxX + horizontalGap,
-      y: arrowCenterY - labelHeight / 2,
-    };
-  }
-  return {
-    x: arrowCenterX - labelWidth / 2,
-    y: arrowBounds.maxY + verticalGap,
-  };
-}
-
-function clipSite(
-  context: CanvasRenderingContext2D,
-  siteShape: SiteShape,
-  siteVertices: Array<{ x: number; y: number }>,
-  origin: { x: number; y: number },
-  scale: number,
-  siteWidth: number,
-  siteHeight: number,
-) {
-  context.beginPath();
-  if (siteShape === "polygon" && siteVertices.length >= 3) {
-    siteVertices.forEach((point, index) => {
-      const x = origin.x + point.x * scale;
-      const y = origin.y + point.y * scale;
-      if (index === 0) context.moveTo(x, y);
-      else context.lineTo(x, y);
-    });
-    context.closePath();
-  } else {
-    context.rect(origin.x, origin.y, siteWidth, siteHeight);
-  }
-  context.clip();
+  return getEntranceLabelCoordinates(position, arrowBounds, labelSize, gap);
 }
 
 function clipPlan(
@@ -569,7 +524,7 @@ function drawAncillaryBuildings(
     tracePolygon(context, points);
     if (labelsOnly) {
       context.clip();
-      drawHorizontalPolygonLabel(context, building.label, points);
+      drawHorizontalPolygonLabel(context, building.label, points, building.labelFontSize);
     } else {
       context.fillStyle = "#e5e7eb";
       context.fill();
@@ -604,7 +559,7 @@ function drawExistingBuildings(
     tracePolygon(context, points);
     if (labelsOnly) {
       context.clip();
-      drawHorizontalPolygonLabel(context, building.label, points);
+      drawHorizontalPolygonLabel(context, building.label, points, building.labelFontSize);
     } else {
       context.fillStyle = "rgba(107, 114, 128, 0.48)";
       context.fill();
@@ -654,26 +609,26 @@ function drawHorizontalPolygonLabel(
   context: CanvasRenderingContext2D,
   label: string,
   points: Array<{ x: number; y: number }>,
+  preferredFontSize?: number,
 ) {
   const bounds = getPointBounds(points);
-  const preferredY = clampNumber(
-    getPolygonCentroid(points).y,
-    bounds.minY + 4,
-    bounds.maxY - 4,
-  );
-  const span = getWidestHorizontalSpan(points, preferredY, bounds);
-  if (!span || span.width < 8 || bounds.maxY - bounds.minY < 8) return;
+  if (bounds.maxX - bounds.minX < 8 || bounds.maxY - bounds.minY < 8) return;
 
-  const maxWidth = Math.max(1, span.width * 0.88);
-  const maxHeight = Math.max(1, (bounds.maxY - bounds.minY) * 0.72);
-  const fitted = fitSingleLineLabel(context, [label], maxWidth, maxHeight, 46, 8);
+  const maxWidth = Math.max(1, (bounds.maxX - bounds.minX) * 0.82);
+  const maxHeight = Math.max(1, (bounds.maxY - bounds.minY) * 0.78);
+  const fitted = fitMultilineLabel(context, label, maxWidth, maxHeight, preferredFontSize, 46, 8);
   if (!fitted) return;
 
   context.fillStyle = "#111827";
   context.font = `700 ${fitted.fontSize}px Arial`;
   context.textAlign = "center";
   context.textBaseline = "middle";
-  context.fillText(fitted.text, span.centerX, span.y, maxWidth);
+  const centerX = (bounds.minX + bounds.maxX) / 2;
+  const centerY = (bounds.minY + bounds.maxY) / 2;
+  const startY = centerY - (fitted.lineHeight * (fitted.lines.length - 1)) / 2;
+  fitted.lines.forEach((line, index) => {
+    context.fillText(line, centerX, startY + index * fitted.lineHeight, maxWidth);
+  });
 }
 
 function backgroundPointToExport(
@@ -753,6 +708,91 @@ function fitSingleLineLabel(
     }
   }
   return undefined;
+}
+
+function fitMultilineLabel(
+  context: CanvasRenderingContext2D,
+  text: string,
+  maxWidth: number,
+  maxHeight: number,
+  preferredFontSize: number | undefined,
+  maximumFontSize: number,
+  minimumFontSize: number,
+) {
+  const cappedPreferredFontSize =
+    preferredFontSize === undefined ? maximumFontSize : Math.max(minimumFontSize, Math.min(maximumFontSize, preferredFontSize));
+  for (let fontSize = cappedPreferredFontSize; fontSize >= minimumFontSize; fontSize -= 1) {
+    context.font = `700 ${fontSize}px Arial`;
+    const lines = wrapMultilineText(context, text, maxWidth);
+    const lineHeight = fontSize * 1.18;
+    if (lines.length * lineHeight <= maxHeight) {
+      return { lines, fontSize, lineHeight };
+    }
+  }
+  return undefined;
+}
+
+function wrapMultilineText(
+  context: CanvasRenderingContext2D,
+  text: string,
+  maxWidth: number,
+) {
+  return text
+    .split(/\r?\n/)
+    .flatMap((paragraph) => wrapParagraph(context, paragraph, maxWidth));
+}
+
+function wrapParagraph(
+  context: CanvasRenderingContext2D,
+  paragraph: string,
+  maxWidth: number,
+) {
+  if (!paragraph.trim()) return [""];
+  const words = paragraph.trim().split(/\s+/);
+  const lines: string[] = [];
+  let currentLine = "";
+
+  words.forEach((word) => {
+    const candidate = currentLine ? `${currentLine} ${word}` : word;
+    if (context.measureText(candidate).width <= maxWidth) {
+      currentLine = candidate;
+      return;
+    }
+    if (currentLine) {
+      lines.push(currentLine);
+      currentLine = "";
+    }
+    if (context.measureText(word).width <= maxWidth) {
+      currentLine = word;
+      return;
+    }
+    lines.push(...breakLongWord(context, word, maxWidth));
+  });
+
+  if (currentLine) lines.push(currentLine);
+  return lines.length ? lines : [paragraph];
+}
+
+function breakLongWord(
+  context: CanvasRenderingContext2D,
+  word: string,
+  maxWidth: number,
+) {
+  const parts: string[] = [];
+  let current = "";
+
+  for (const character of word) {
+    const candidate = current + character;
+    if (current && context.measureText(candidate).width > maxWidth) {
+      parts.push(current);
+      current = character;
+    } else {
+      current = candidate;
+    }
+  }
+
+  if (current) parts.push(current);
+  return parts;
 }
 
 function getPointBounds(points: Array<{ x: number; y: number }>) {
@@ -963,7 +1003,11 @@ function drawBuildings(
     context.rotate((building.rotation * Math.PI) / 180);
 
     drawBuildingOutline(context, width, height, building.color);
-    drawBuildingProgramSchedule(context, building, width, height);
+    if (building.type === "toilet") {
+      drawToilet(context, building, width, height);
+    } else {
+      drawBuildingProgramSchedule(context, building, width, height);
+    }
 
     context.restore();
   });
@@ -1005,25 +1049,49 @@ function drawBridge(context: CanvasRenderingContext2D, width: number, height: nu
   }
 }
 
-function drawToilet(context: CanvasRenderingContext2D, width: number, height: number) {
-  drawBuildingOutline(context, width, height);
-  context.strokeStyle = "#000000";
-  context.lineWidth = 4;
+function drawToilet(
+  context: CanvasRenderingContext2D,
+  building: Building,
+  width: number,
+  height: number,
+) {
+  const layout = getToiletVisualLayout(building.length, width, height);
+  const textColor = getContrastingTextColor(building.color);
+  const secondaryTextColor = textColor === "#111827" ? "rgba(17, 24, 39, 0.84)" : "rgba(255, 255, 255, 0.92)";
+  const wcFontSize = Math.max(20, Math.min(34, Math.min(width / Math.max(2, layout.stallCount * 2.4), height * 0.14)));
+  const labelFontSize = Math.max(24, building.labelFontSize ?? DEFAULT_BUILDING_LABEL_FONT_SIZE);
+  const stallCount = getToiletStallCount(building.length);
+
+  context.save();
+  context.strokeStyle = secondaryTextColor;
+  context.lineWidth = 5;
   context.beginPath();
-  context.moveTo(width / 2, 0);
-  context.lineTo(width / 2, height);
-  context.moveTo(0, height * 0.72);
-  context.lineTo(width, height * 0.72);
+  context.moveTo(layout.partitionXs[0], layout.backWallY);
+  context.lineTo(layout.partitionXs[layout.partitionXs.length - 1], layout.backWallY);
+  context.moveTo(layout.partitionXs[0], layout.frontPartitionY);
+  context.lineTo(layout.partitionXs[layout.partitionXs.length - 1], layout.frontPartitionY);
+  layout.partitionXs.forEach((x) => {
+    context.moveTo(x, layout.backWallY);
+    context.lineTo(x, layout.frontPartitionY);
+  });
   context.stroke();
 
-  drawServiceFixture(context, width * 0.25, height * 0.38, Math.min(width, height) * 0.1);
-  drawServiceFixture(context, width * 0.75, height * 0.38, Math.min(width, height) * 0.1);
-}
+  context.fillStyle = textColor;
+  context.textAlign = "center";
+  context.textBaseline = "middle";
+  context.font = `700 ${wcFontSize}px Arial`;
+  layout.stallCenters.forEach((centerX) => {
+    context.fillText("WC", centerX, layout.backWallY + (layout.frontPartitionY - layout.backWallY) * 0.32, 60);
+  });
 
-function drawServiceFixture(context: CanvasRenderingContext2D, x: number, y: number, radius: number) {
-  context.beginPath();
-  context.arc(x, y, Math.max(8, radius), 0, Math.PI * 2);
-  context.stroke();
+  context.fillStyle = secondaryTextColor;
+  context.font = `600 ${Math.max(18, Math.min(26, wcFontSize))}px Arial`;
+  context.fillText(`${stallCount} WC`, width / 2, Math.max(layout.labelZoneY - 8, layout.frontPartitionY + 14), width - 16);
+
+  context.fillStyle = textColor;
+  context.font = `700 ${labelFontSize}px Arial`;
+  context.fillText(building.label, width / 2, layout.labelZoneY + layout.labelZoneHeight / 2, width - 16);
+  context.restore();
 }
 
 function drawTree(context: CanvasRenderingContext2D, width: number, height: number) {
@@ -1200,7 +1268,14 @@ function drawBuildingProgramSchedule(
   const programLines = building.programs.map(
     (program, index) => `${index + 1}. ${program.name} (${formatArea(program.area)}m\u00b2)`,
   );
-  const layout = fitBuildingSchedule(context, building.label, programLines, maxWidth, maxHeight);
+  const layout = fitBuildingSchedule(
+    context,
+    building.label,
+    programLines,
+    maxWidth,
+    maxHeight,
+    building.labelFontSize ?? DEFAULT_BUILDING_LABEL_FONT_SIZE,
+  );
   const titleHeight = layout.titleFontSize * 1.25;
   const lineHeight = layout.programFontSize * 1.25;
   const gap = programLines.length ? layout.programFontSize * 0.45 : 0;
@@ -1232,9 +1307,18 @@ function fitBuildingSchedule(
   programLines: string[],
   maxWidth: number,
   maxHeight: number,
+  preferredTitleFontSize: number,
 ) {
   for (let programFontSize = 48; programFontSize >= 4; programFontSize -= 1) {
-    const titleFontSize = Math.min(72, Math.max(programFontSize * 1.35, programFontSize + 4));
+    const titleFontSize = Math.min(
+      72,
+      Math.max(
+        6,
+        Math.min(preferredTitleFontSize, maxHeight),
+        programFontSize * 1.35,
+        programFontSize + 4,
+      ),
+    );
     const totalHeight =
       titleFontSize * 1.25 +
       (programLines.length ? programFontSize * 0.45 : 0) +
@@ -1519,7 +1603,7 @@ function sanitizeFilename(value: string) {
     value
       .trim()
       .replace(/[<>:"/\\|?*\u0000-\u001f]/g, "")
-      .replace(/[. ]+$/g, "") || "Untitled Layout"
+      .replace(/[. ]+$/g, "") || DEFAULT_PROJECT_NAME
   );
 }
 

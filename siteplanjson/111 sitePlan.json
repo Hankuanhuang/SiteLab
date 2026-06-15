@@ -1,0 +1,261 @@
+{
+  "version": 1,
+  "projectId": "3dabda9a-3d94-4efe-a65f-9361abf0ac07",
+  "projectName": "111 sitePlan",
+  "savedAt": "2026-06-15T16:43:54.350Z",
+  "site": {
+    "length": 59.92393283477439,
+    "width": 61.809705002177914,
+    "shape": "polygon",
+    "vertices": [
+      {
+        "x": 24.828,
+        "y": 0
+      },
+      {
+        "x": 61.81,
+        "y": 0
+      },
+      {
+        "x": 61.684,
+        "y": 59.924
+      },
+      {
+        "x": 0,
+        "y": 59.75
+      }
+    ],
+    "edgeLengths": [
+      38,
+      60,
+      61,
+      64.703
+    ]
+  },
+  "buildings": [],
+  "siteLabels": [],
+  "trees": [],
+  "sidewalks": [],
+  "contextZones": [],
+  "roads": [],
+  "ancillaryBuildings": [],
+  "existingBuildings": [
+    {
+      "id": "8a6f88e5-ccee-4a0d-a345-31d73e3ce60d",
+      "type": "rectangle",
+      "label": "Existing Building",
+      "points": [
+        {
+          "x": 588.105,
+          "y": 198.226
+        },
+        {
+          "x": 801.598,
+          "y": 198.226
+        },
+        {
+          "x": 801.598,
+          "y": 349.45
+        },
+        {
+          "x": 588.105,
+          "y": 349.45
+        }
+      ]
+    },
+    {
+      "id": "765692ad-73cb-488d-b4ba-f8ee5ca6da59",
+      "type": "rectangle",
+      "label": "Existing Building",
+      "points": [
+        {
+          "x": 586.737,
+          "y": 406.928
+        },
+        {
+          "x": 802.282,
+          "y": 406.928
+        },
+        {
+          "x": 802.282,
+          "y": 556.784
+        },
+        {
+          "x": 586.737,
+          "y": 556.784
+        }
+      ]
+    }
+  ],
+  "existingTrees": [
+    {
+      "id": "e28cd790-5f9b-42ee-9847-488540f3b2b0",
+      "x": 505.935,
+      "y": 721.32,
+      "radius": 16.501,
+      "diameter": 4,
+      "label": "Existing Tree"
+    },
+    {
+      "id": "3996b6d5-5046-4230-864b-6d23414a985c",
+      "x": 461.422,
+      "y": 721.32,
+      "radius": 16.501,
+      "diameter": 4,
+      "label": "Existing Tree"
+    },
+    {
+      "id": "3099c93c-c937-4c7e-9265-d6ee507305aa",
+      "x": 415.518,
+      "y": 720.764,
+      "radius": 16.501,
+      "diameter": 4,
+      "label": "Existing Tree"
+    },
+    {
+      "id": "870e1cbc-14ab-4e28-b03d-2b753bc4dd66",
+      "x": 370.251,
+      "y": 721.025,
+      "radius": 16.501,
+      "diameter": 4,
+      "label": "Existing Tree"
+    },
+    {
+      "id": "8aa38fef-2709-40d9-a138-73afaf0342ae",
+      "x": 324.875,
+      "y": 722.334,
+      "radius": 16.501,
+      "diameter": 4,
+      "label": "Existing Tree"
+    },
+    {
+      "id": "420b0252-92b5-4fd3-9c0f-45f7367e8c77",
+      "x": 279.935,
+      "y": 722.77,
+      "radius": 16.501,
+      "diameter": 4,
+      "label": "Existing Tree"
+    },
+    {
+      "id": "508fc09c-87cf-43bc-9877-c4614e08ed02",
+      "x": 233.686,
+      "y": 721.898,
+      "radius": 16.501,
+      "diameter": 4,
+      "label": "Existing Tree"
+    },
+    {
+      "id": "cb428b16-ae7f-4b54-a35a-48d833f8963a",
+      "x": 189.619,
+      "y": 722.77,
+      "radius": 16.501,
+      "diameter": 4,
+      "label": "Existing Tree"
+    },
+    {
+      "id": "f002ce28-2ff6-4481-82d6-99f8a0f96709",
+      "x": 144.511,
+      "y": 721.014,
+      "radius": 16.501,
+      "diameter": 4,
+      "label": "Existing Tree"
+    },
+    {
+      "id": "4d0b788c-2fd6-4dfb-9b09-f51d4929f3d1",
+      "x": 99.906,
+      "y": 722.307,
+      "radius": 16.501,
+      "diameter": 4,
+      "label": "Existing Tree"
+    },
+    {
+      "id": "a1d9775c-2c80-4e6f-8b5b-3433e8e5b4b6",
+      "x": 54.977,
+      "y": 720.69,
+      "radius": 16.501,
+      "diameter": 4,
+      "label": "Existing Tree"
+    },
+    {
+      "id": "d6250262-a80e-498d-a5d7-69f324f9bcc3",
+      "x": 144.834,
+      "y": 765.296,
+      "radius": 16.501,
+      "diameter": 4,
+      "label": "Existing Tree"
+    },
+    {
+      "id": "d68059e9-e530-4c37-a48e-0edbf1e8ae38",
+      "x": 205.601,
+      "y": 768.528,
+      "radius": 16.501,
+      "diameter": 4,
+      "label": "Existing Tree"
+    },
+    {
+      "id": "5491de89-bcc1-45bd-b727-57e6e787031e",
+      "x": 266.367,
+      "y": 767.558,
+      "radius": 16.501,
+      "diameter": 4,
+      "label": "Existing Tree"
+    },
+    {
+      "id": "d0cd7bc0-6ff9-47b9-a541-78c544eb7d0a",
+      "x": 326.164,
+      "y": 766.589,
+      "radius": 16.501,
+      "diameter": 4,
+      "label": "Existing Tree"
+    },
+    {
+      "id": "90d5bbdc-94db-402b-8421-1a98adebe362",
+      "x": 384.936,
+      "y": 765.53,
+      "radius": 16.501,
+      "diameter": 4,
+      "label": "Existing Tree"
+    },
+    {
+      "id": "1e92e102-8c0b-46d9-a35e-fc6c9672c49d",
+      "x": 544.89,
+      "y": 782.292,
+      "radius": 16.501,
+      "diameter": 4,
+      "label": "Existing Tree"
+    },
+    {
+      "id": "1e524cb4-382c-470b-828c-8f4e991a4e18",
+      "x": 730.329,
+      "y": 721.522,
+      "radius": 16.501,
+      "diameter": 4,
+      "label": "Existing Tree"
+    },
+    {
+      "id": "fa076570-3899-4cca-9ad2-872c8b801759",
+      "x": 775.564,
+      "y": 722.587,
+      "radius": 16.501,
+      "diameter": 4,
+      "label": "Existing Tree"
+    },
+    {
+      "id": "ca2b890d-259c-466c-a2f9-051e4d9aa8c8",
+      "x": 731.926,
+      "y": 781.835,
+      "radius": 16.501,
+      "diameter": 4,
+      "label": "Existing Tree"
+    },
+    {
+      "id": "b9a9de3f-9ddd-44d8-bf32-a5f9f9fef6e0",
+      "x": 776.983,
+      "y": 781.303,
+      "radius": 16.501,
+      "diameter": 4,
+      "label": "Existing Tree"
+    }
+  ],
+  "entrances": []
+}

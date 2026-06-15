@@ -2,6 +2,7 @@ import type {
   ConceptPlanExport,
   ConceptPlanRenderedVersion,
 } from "../types/layout";
+import { normalizeProjectName } from "./projectName";
 
 const storageKey = "conceptPlanGallery.v1";
 const activeProjectIdKey = "conceptPlanGallery.activeProjectId";
@@ -22,13 +23,22 @@ export function getLegacyProjectId(projectName: string) {
 export function readActiveProject() {
   return {
     id: localStorage.getItem(activeProjectIdKey) || createProjectId(),
-    name: localStorage.getItem(activeProjectNameKey) || "Untitled Layout",
+    name: normalizeProjectName(localStorage.getItem(activeProjectNameKey)),
   };
 }
 
 export function saveActiveProject(projectId: string, projectName: string) {
   localStorage.setItem(activeProjectIdKey, projectId);
-  localStorage.setItem(activeProjectNameKey, projectName);
+  localStorage.setItem(activeProjectNameKey, normalizeProjectName(projectName));
+}
+
+export function startNewActiveProject(projectName: string) {
+  const project = {
+    id: createProjectId(),
+    name: normalizeProjectName(projectName),
+  };
+  saveActiveProject(project.id, project.name);
+  return project;
 }
 
 export function readConceptPlanExports(projectId: string) {
@@ -83,6 +93,29 @@ export function getNextExportNumber(projectId: string) {
     (highest, item) => Math.max(highest, item.exportNumber),
     0,
   ) + 1;
+}
+
+export function renameProjectReferences(
+  projectId: string,
+  previousProjectName: string,
+  nextProjectName: string,
+) {
+  const normalizedPreviousName = normalizeProjectName(previousProjectName);
+  const normalizedNextName = normalizeProjectName(nextProjectName);
+  writeAllExports(
+    readAllExports().map((item) => {
+      if (item.projectId !== projectId) return item;
+
+      const defaultPreviousExportName = getDefaultExportName(normalizedPreviousName, item.exportNumber);
+      return {
+        ...item,
+        layoutName: normalizedNextName,
+        name: item.name === defaultPreviousExportName
+          ? getDefaultExportName(normalizedNextName, item.exportNumber)
+          : item.name,
+      };
+    }),
+  );
 }
 
 function readAllExports(): ConceptPlanExport[] {
@@ -150,6 +183,10 @@ function readRenderedVersions(value: unknown): ConceptPlanRenderedVersion[] {
 
 function writeAllExports(exports: ConceptPlanExport[]) {
   localStorage.setItem(storageKey, JSON.stringify(exports));
+}
+
+function getDefaultExportName(projectName: string, exportNumber: number) {
+  return `${projectName} - Export ${exportNumber}`;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

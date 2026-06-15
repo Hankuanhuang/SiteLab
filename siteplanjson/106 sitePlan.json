@@ -1,0 +1,62 @@
+{
+  "version": 1,
+  "projectId": "3dabda9a-3d94-4efe-a65f-9361abf0ac07",
+  "projectName": "106 sitePlan",
+  "savedAt": "2026-06-15T16:30:09.216Z",
+  "site": {
+    "length": 50.8,
+    "width": 16.7,
+    "shape": "rectangle"
+  },
+  "buildings": [],
+  "siteLabels": [],
+  "trees": [],
+  "sidewalks": [],
+  "contextZones": [],
+  "roads": [],
+  "ancillaryBuildings": [],
+  "existingBuildings": [
+    {
+      "id": "8321a28a-aa48-4f49-b1a9-bfb84e1d7c53",
+      "type": "rectangle",
+      "label": "Existing Building",
+      "points": [
+        {
+          "x": 511.486,
+          "y": 34.793
+        },
+        {
+          "x": 592.374,
+          "y": 34.793
+        },
+        {
+          "x": 592.374,
+          "y": 124.986
+        },
+        {
+          "x": 511.486,
+          "y": 124.986
+        }
+      ]
+    }
+  ],
+  "existingTrees": [
+    {
+      "id": "e0f4aeea-74c4-4500-b048-e8ca36277bf5",
+      "x": 568.766,
+      "y": 322.957,
+      "radius": 18.94,
+      "diameter": 5,
+      "label": "Existing Tree"
+    },
+    {
+      "id": "accdd3b0-cff8-4160-a7d0-6f6e5fd1e71b",
+      "x": 578.314,
+      "y": 201.186,
+      "radius": 11.364,
+      "diameter": 3,
+      "label": "Existing Tree"
+    }
+  ],
+  "entrances": []
+}

@@ -1,0 +1,137 @@
+{
+  "version": 1,
+  "projectId": "3dabda9a-3d94-4efe-a65f-9361abf0ac07",
+  "projectName": "109 sitePlan",
+  "savedAt": "2026-06-15T16:37:10.964Z",
+  "site": {
+    "length": 45,
+    "width": 72,
+    "shape": "rectangle"
+  },
+  "buildings": [],
+  "siteLabels": [],
+  "trees": [],
+  "sidewalks": [],
+  "contextZones": [],
+  "roads": [],
+  "ancillaryBuildings": [],
+  "existingBuildings": [
+    {
+      "id": "ac956b53-48bd-4d39-9894-7feebb0f5189",
+      "type": "rectangle",
+      "label": "Existing Building",
+      "points": [
+        {
+          "x": 506.165,
+          "y": 66.831
+        },
+        {
+          "x": 951.622,
+          "y": 66.831
+        },
+        {
+          "x": 951.622,
+          "y": 137.208
+        },
+        {
+          "x": 506.165,
+          "y": 137.208
+        }
+      ]
+    },
+    {
+      "id": "03c79ce1-e618-4f02-bcbc-59b2795ed71a",
+      "type": "rectangle",
+      "label": "Existing Building",
+      "points": [
+        {
+          "x": 635.724,
+          "y": 21.245
+        },
+        {
+          "x": 789.274,
+          "y": 21.245
+        },
+        {
+          "x": 789.274,
+          "y": 66.031
+        },
+        {
+          "x": 635.724,
+          "y": 66.031
+        }
+      ]
+    },
+    {
+      "id": "d566083f-9e55-49e0-bce5-19ba274a9b64",
+      "type": "rectangle",
+      "label": "Existing Building",
+      "points": [
+        {
+          "x": 726.444,
+          "y": 606.95
+        },
+        {
+          "x": 800.021,
+          "y": 606.95
+        },
+        {
+          "x": 800.021,
+          "y": 680.926
+        },
+        {
+          "x": 726.444,
+          "y": 680.926
+        }
+      ]
+    },
+    {
+      "id": "693e7a5c-62b0-479a-973d-842c427baeb8",
+      "type": "rectangle",
+      "label": "Existing Building",
+      "points": [
+        {
+          "x": 514.913,
+          "y": 619.346
+        },
+        {
+          "x": 742.439,
+          "y": 619.346
+        },
+        {
+          "x": 742.439,
+          "y": 697.721
+        },
+        {
+          "x": 514.913,
+          "y": 697.721
+        }
+      ]
+    },
+    {
+      "id": "e79e02c9-8b0d-4b5c-a151-12fc64318d0b",
+      "type": "rectangle",
+      "label": "Existing Building",
+      "points": [
+        {
+          "x": 1147.777,
+          "y": 292.858
+        },
+        {
+          "x": 1216.61,
+          "y": 292.858
+        },
+        {
+          "x": 1216.61,
+          "y": 597.067
+        },
+        {
+          "x": 1147.777,
+          "y": 597.067
+        }
+      ]
+    }
+  ],
+  "existingTrees": [],
+  "entrances": []
+}

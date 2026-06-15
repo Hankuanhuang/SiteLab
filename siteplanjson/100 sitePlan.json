@@ -1,0 +1,46 @@
+{
+  "version": 1,
+  "projectId": "3dabda9a-3d94-4efe-a65f-9361abf0ac07",
+  "projectName": "101 sitePlan",
+  "savedAt": "2026-06-15T15:07:54.744Z",
+  "site": {
+    "length": 65,
+    "width": 65,
+    "shape": "rectangle"
+  },
+  "buildings": [],
+  "siteLabels": [],
+  "trees": [],
+  "sidewalks": [],
+  "contextZones": [
+    {
+      "id": "e0da174d-2a40-486a-9dfd-81a786d5071f",
+      "type": "greenPark",
+      "shape": "rectangle",
+      "label": "Green Park Area",
+      "points": [
+        {
+          "x": 188.426,
+          "y": 127.254
+        },
+        {
+          "x": 345.163,
+          "y": 127.254
+        },
+        {
+          "x": 345.163,
+          "y": 387.273
+        },
+        {
+          "x": 188.426,
+          "y": 387.273
+        }
+      ]
+    }
+  ],
+  "roads": [],
+  "ancillaryBuildings": [],
+  "existingBuildings": [],
+  "existingTrees": [],
+  "entrances": []
+}

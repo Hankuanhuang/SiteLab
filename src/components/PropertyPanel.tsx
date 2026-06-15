@@ -1,16 +1,22 @@
 import type {
+  AncillaryBuilding,
   Building,
   BuildingColor,
   Entrance,
   EntranceLabelPosition,
+  ExistingBuilding,
   PdfBackgroundView,
+  ProjectSite,
   Sidewalk,
-  SiteDimensions,
   SiteLabel,
+  SetupRoad,
   Tree,
 } from "../types/layout";
+import { DEFAULT_BUILDING_LABEL_FONT_SIZE, isCoreBuilding } from "../models/Building";
+import { getToiletStallCount } from "../utils/toiletLayout";
 
 const buildingColors: Array<{ name: string; value: BuildingColor }> = [
+  { name: "Light Gray", value: "#d1d5db" },
   { name: "Red", value: "#ef4444" },
   { name: "Orange", value: "#f97316" },
   { name: "Yellow", value: "#eab308" },
@@ -24,24 +30,29 @@ const buildingColors: Array<{ name: string; value: BuildingColor }> = [
 ];
 
 interface PropertyPanelProps {
-  site: SiteDimensions;
   selectedBuilding?: Building;
+  selectedProjectSite?: ProjectSite;
   selectedSiteLabel?: SiteLabel;
   selectedTree?: Tree;
   selectedSidewalk?: Sidewalk;
   selectedEntrance?: Entrance;
+  selectedRoad?: SetupRoad;
+  selectedAncillaryBuilding?: AncillaryBuilding;
+  selectedExistingBuilding?: ExistingBuilding;
+  isTreeToolActive: boolean;
+  isSidewalkToolActive: boolean;
+  isEntranceToolActive: boolean;
   hasBackground: boolean;
   hasFullPageBackground: boolean;
   backgroundView: PdfBackgroundView;
   backgroundOpacity: number;
   showBackground: boolean;
   showDistanceLines: boolean;
-  onSiteChange: (site: SiteDimensions) => void;
-  onBackgroundImageChange: (src?: string) => void;
   onBackgroundViewChange: (view: PdfBackgroundView) => void;
   onBackgroundOpacityChange: (opacity: number) => void;
   onShowBackgroundChange: (isVisible: boolean) => void;
   onShowDistanceLinesChange: (isVisible: boolean) => void;
+  onProjectSiteChange: (projectSite: ProjectSite) => void;
   onBuildingChange: (building: Building) => void;
   onDeleteBuilding: () => void;
   onSiteLabelChange: (label: SiteLabel) => void;
@@ -52,27 +63,35 @@ interface PropertyPanelProps {
   onDeleteSidewalk: () => void;
   onEntranceChange: (entrance: Entrance) => void;
   onDeleteEntrance: () => void;
+  onRoadChange: (road: SetupRoad) => void;
+  onAncillaryBuildingChange: (building: AncillaryBuilding) => void;
+  onExistingBuildingChange: (building: ExistingBuilding) => void;
 }
 
 export function PropertyPanel({
-  site,
   selectedBuilding,
+  selectedProjectSite,
   selectedSiteLabel,
   selectedTree,
   selectedSidewalk,
   selectedEntrance,
+  selectedRoad,
+  selectedAncillaryBuilding,
+  selectedExistingBuilding,
+  isTreeToolActive,
+  isSidewalkToolActive,
+  isEntranceToolActive,
   hasBackground,
   hasFullPageBackground,
   backgroundView,
   backgroundOpacity,
   showBackground,
   showDistanceLines,
-  onSiteChange,
-  onBackgroundImageChange,
   onBackgroundViewChange,
   onBackgroundOpacityChange,
   onShowBackgroundChange,
   onShowDistanceLinesChange,
+  onProjectSiteChange,
   onBuildingChange,
   onDeleteBuilding,
   onSiteLabelChange,
@@ -83,52 +102,34 @@ export function PropertyPanel({
   onDeleteSidewalk,
   onEntranceChange,
   onDeleteEntrance,
+  onRoadChange,
+  onAncillaryBuildingChange,
+  onExistingBuildingChange,
 }: PropertyPanelProps) {
-  const handleBackgroundUpload = (file?: File) => {
-    if (!file) return;
-
-    const reader = new FileReader();
-    reader.onload = () => {
-      if (typeof reader.result === "string") onBackgroundImageChange(reader.result);
-    };
-    reader.readAsDataURL(file);
-  };
+  const buildingIsCore = selectedBuilding ? isCoreBuilding(selectedBuilding) : false;
+  const activeSectionClass = isTreeToolActive || selectedTree
+    ? "activeTreeSection"
+    : selectedRoad
+      ? "activeRoadSection"
+      : selectedAncillaryBuilding
+        ? "activeAncillaryBuildingSection"
+        : selectedExistingBuilding
+          ? "activeExistingBuildingSection"
+          : selectedProjectSite
+            ? "activeSiteBoundarySection"
+            : isSidewalkToolActive || selectedSidewalk
+              ? "activeSidewalkSection"
+              : isEntranceToolActive || selectedEntrance
+                ? "activeEntranceSection"
+                : selectedSiteLabel
+                  ? "activeSiteLabelSection"
+                  : selectedBuilding
+                    ? "activeBuildingSection"
+                    : "activeBackgroundSection";
 
   return (
-    <aside className="propertyPanel" onWheel={(event) => event.stopPropagation()}>
-      <section className="siteDimensionsSection">
-        <p className="eyebrow">Site</p>
-        <label>
-          <span>Site Length (m)</span>
-          <input
-            type="number"
-            min="1"
-            step="0.1"
-            value={site.length.toFixed(1)}
-            onChange={(event) => onSiteChange({ ...site, length: Number(event.target.value) || 1 })}
-          />
-        </label>
-        <label>
-          <span>Site Width (m)</span>
-          <input
-            type="number"
-            min="1"
-            step="0.1"
-            value={site.width.toFixed(1)}
-            onChange={(event) => onSiteChange({ ...site, width: Number(event.target.value) || 1 })}
-          />
-        </label>
-      </section>
-
+    <aside className={`propertyPanel ${activeSectionClass}`} onWheel={(event) => event.stopPropagation()}>
       <section className="backgroundSection">
-        <label>
-          <span>Canvas Background Image</span>
-          <input
-            type="file"
-            accept="image/*"
-            onChange={(event) => handleBackgroundUpload(event.target.files?.[0])}
-          />
-        </label>
         <label>
           <span>PDF Background Opacity ({Math.round(backgroundOpacity * 100)}%)</span>
           <input
@@ -167,12 +168,9 @@ export function PropertyPanel({
             </button>
           </div>
         ) : null}
-        <button className="secondaryButton" type="button" onClick={() => onBackgroundImageChange(undefined)}>
-          Remove Background
-        </button>
       </section>
 
-      <section>
+      <section className="dimensionsSection">
         <p className="eyebrow">Dimensions</p>
         <label className="inlineToggle">
           <input
@@ -184,7 +182,138 @@ export function PropertyPanel({
         </label>
       </section>
 
-      <section>
+      <section className="roadSection">
+        <p className="eyebrow">Site Boundary</p>
+        {selectedProjectSite ? (
+          <div className="buildingFields">
+            <label>
+              <span>Site Name</span>
+              <input
+                type="text"
+                value={selectedProjectSite.name}
+                onChange={(event) =>
+                  onProjectSiteChange({
+                    ...selectedProjectSite,
+                    name: event.target.value,
+                  })
+                }
+              />
+            </label>
+            <label>
+              <span>Length (m)</span>
+              <output className="propertyValue">{round(selectedProjectSite.length)}</output>
+            </label>
+            <label>
+              <span>Width (m)</span>
+              <output className="propertyValue">{round(selectedProjectSite.width)}</output>
+            </label>
+            <label>
+              <span>Area (m²)</span>
+              <output className="propertyValue">{round(selectedProjectSite.length * selectedProjectSite.width)}</output>
+            </label>
+          </div>
+        ) : (
+          <p className="muted">Select a site boundary to view its properties.</p>
+        )}
+      </section>
+
+      <section className="roadSection">
+        <p className="eyebrow">Road Label</p>
+        {selectedRoad ? (
+          <div className="buildingFields">
+            <p className="muted">{getRoadDisplayLabel(selectedRoad)}</p>
+            <label>
+              <span>Font Size</span>
+              <input
+                type="number"
+                min="8"
+                step="1"
+                value={selectedRoad.labelFontSize ?? 13}
+                onChange={(event) =>
+                  onRoadChange({
+                    ...selectedRoad,
+                    labelFontSize: clampFontSize(event.target.value, selectedRoad.labelFontSize ?? 13),
+                  })
+                }
+              />
+            </label>
+          </div>
+        ) : (
+          <p className="muted">Click a road label to edit its font size.</p>
+        )}
+      </section>
+
+      <section className="ancillaryBuildingSection">
+        <p className="eyebrow">Ancillary Building Label</p>
+        {selectedAncillaryBuilding ? (
+          <div className="buildingFields">
+            <label>
+              <span>Label Text</span>
+              <input
+                type="text"
+                value={selectedAncillaryBuilding.label}
+                onChange={(event) =>
+                  onAncillaryBuildingChange({ ...selectedAncillaryBuilding, label: event.target.value })
+                }
+              />
+            </label>
+            <label>
+              <span>Font Size</span>
+              <input
+                type="number"
+                min="8"
+                step="1"
+                value={selectedAncillaryBuilding.labelFontSize ?? 13}
+                onChange={(event) =>
+                  onAncillaryBuildingChange({
+                    ...selectedAncillaryBuilding,
+                    labelFontSize: clampFontSize(event.target.value, selectedAncillaryBuilding.labelFontSize ?? 13),
+                  })
+                }
+              />
+            </label>
+          </div>
+        ) : (
+          <p className="muted">Click an ancillary building label to edit its font size.</p>
+        )}
+      </section>
+
+      <section className="existingBuildingSection">
+        <p className="eyebrow">Existing Building Label</p>
+        {selectedExistingBuilding ? (
+          <div className="buildingFields">
+            <label>
+              <span>Label Text</span>
+              <textarea
+                rows={3}
+                value={selectedExistingBuilding.label}
+                onChange={(event) =>
+                  onExistingBuildingChange({ ...selectedExistingBuilding, label: event.target.value })
+                }
+              />
+            </label>
+            <label>
+              <span>Font Size</span>
+              <input
+                type="number"
+                min="8"
+                step="1"
+                value={selectedExistingBuilding.labelFontSize ?? 13}
+                onChange={(event) =>
+                  onExistingBuildingChange({
+                    ...selectedExistingBuilding,
+                    labelFontSize: clampFontSize(event.target.value, selectedExistingBuilding.labelFontSize ?? 13),
+                  })
+                }
+              />
+            </label>
+          </div>
+        ) : (
+          <p className="muted">Click an existing building label to edit its font size.</p>
+        )}
+      </section>
+
+      <section className="entranceSection">
         <p className="eyebrow">Entrance Label</p>
         {selectedEntrance ? (
           <div className="buildingFields">
@@ -197,6 +326,21 @@ export function PropertyPanel({
                   onEntranceChange({
                     ...selectedEntrance,
                     label: event.target.value,
+                  })
+                }
+              />
+            </label>
+            <label>
+              <span>Font Size</span>
+              <input
+                type="number"
+                min="8"
+                step="1"
+                value={selectedEntrance.labelFontSize ?? 13}
+                onChange={(event) =>
+                  onEntranceChange({
+                    ...selectedEntrance,
+                    labelFontSize: clampFontSize(event.target.value, selectedEntrance.labelFontSize ?? 13),
                   })
                 }
               />
@@ -268,7 +412,7 @@ export function PropertyPanel({
         )}
       </section>
 
-      <section>
+      <section className="sidewalkSection">
         <p className="eyebrow">Sidewalk</p>
         {selectedSidewalk ? (
           <div className="buildingFields">
@@ -278,6 +422,21 @@ export function PropertyPanel({
                 type="text"
                 value={selectedSidewalk.label}
                 onChange={(event) => onSidewalkChange({ ...selectedSidewalk, label: event.target.value })}
+              />
+            </label>
+            <label>
+              <span>Font Size</span>
+              <input
+                type="number"
+                min="8"
+                step="1"
+                value={selectedSidewalk.labelFontSize ?? 14}
+                onChange={(event) =>
+                  onSidewalkChange({
+                    ...selectedSidewalk,
+                    labelFontSize: clampFontSize(event.target.value, selectedSidewalk.labelFontSize ?? 14),
+                  })
+                }
               />
             </label>
             <p className="muted">Boundary segment {selectedSidewalk.edgeIndex + 1}</p>
@@ -305,7 +464,7 @@ export function PropertyPanel({
         )}
       </section>
 
-      <section>
+      <section className="treeSection">
         <p className="eyebrow">Tree</p>
         {selectedTree ? (
           <div className="buildingFields">
@@ -353,7 +512,7 @@ export function PropertyPanel({
         )}
       </section>
 
-      <section>
+      <section className="siteLabelSection">
         <p className="eyebrow">Site Label</p>
         {selectedSiteLabel ? (
           <div className="buildingFields">
@@ -363,6 +522,21 @@ export function PropertyPanel({
                 type="text"
                 value={selectedSiteLabel.text}
                 onChange={(event) => onSiteLabelChange({ ...selectedSiteLabel, text: event.target.value })}
+              />
+            </label>
+            <label>
+              <span>Font Size</span>
+              <input
+                type="number"
+                min="8"
+                step="1"
+                value={selectedSiteLabel.fontSize ?? 18}
+                onChange={(event) =>
+                  onSiteLabelChange({
+                    ...selectedSiteLabel,
+                    fontSize: clampFontSize(event.target.value, selectedSiteLabel.fontSize ?? 18),
+                  })
+                }
               />
             </label>
             <label>
@@ -399,15 +573,33 @@ export function PropertyPanel({
       </section>
 
       <section className="buildingSection">
-        <p className="eyebrow">Building</p>
+        <p className="eyebrow">{buildingIsCore ? "Core" : "Building"}</p>
         {selectedBuilding ? (
           <div className="buildingFields">
             <label>
-              <span>Label</span>
+              <span>Label Text</span>
               <input
                 type="text"
                 value={selectedBuilding.label}
                 onChange={(event) => onBuildingChange({ ...selectedBuilding, label: event.target.value })}
+              />
+            </label>
+            <label>
+              <span>Font Size</span>
+              <input
+                type="number"
+                min="8"
+                step="1"
+                value={selectedBuilding.labelFontSize ?? DEFAULT_BUILDING_LABEL_FONT_SIZE}
+                onChange={(event) =>
+                  onBuildingChange({
+                    ...selectedBuilding,
+                    labelFontSize: clampFontSize(
+                      event.target.value,
+                      selectedBuilding.labelFontSize ?? DEFAULT_BUILDING_LABEL_FONT_SIZE,
+                    ),
+                  })
+                }
               />
             </label>
             <div className="colorSection">
@@ -431,7 +623,7 @@ export function PropertyPanel({
               </output>
             </div>
             <label>
-              <span>Length (m)</span>
+              <span>{buildingIsCore ? "Width (m)" : "Length (m)"}</span>
               <input
                 type="number"
                 min="1"
@@ -448,7 +640,7 @@ export function PropertyPanel({
               />
             </label>
             <label>
-              <span>Width (m)</span>
+              <span>{buildingIsCore ? "Height (m)" : "Width (m)"}</span>
               <input
                 type="number"
                 min="1"
@@ -468,6 +660,12 @@ export function PropertyPanel({
               <span>Area (m²)</span>
               <output className="propertyValue">{round(selectedBuilding.length * selectedBuilding.width)}</output>
             </label>
+            {selectedBuilding.type === "toilet" ? (
+              <label>
+                <span>WC Stall Count</span>
+                <output className="propertyValue">{getToiletStallCount(selectedBuilding.length)}</output>
+              </label>
+            ) : null}
             <label>
               <span>Rotation ({formatRotation(selectedBuilding.rotation)} deg)</span>
               <input
@@ -504,7 +702,8 @@ export function PropertyPanel({
                 onChange={(event) => onBuildingChange({ ...selectedBuilding, y: Number(event.target.value) || 0 })}
               />
             </label>
-            <div className="programSection">
+            {!buildingIsCore ? (
+              <div className="programSection">
               <div className="sectionHeader">
                 <span className="fieldLabel">Program Spaces</span>
                 <button
@@ -574,13 +773,14 @@ export function PropertyPanel({
               ) : (
                 <p className="muted">No program spaces added.</p>
               )}
-            </div>
+              </div>
+            ) : null}
             <button className="dangerButton" type="button" onClick={onDeleteBuilding}>
-              Remove Building
+              Remove {buildingIsCore ? "Core" : "Building"}
             </button>
           </div>
         ) : (
-          <p className="muted">Select a building to view properties</p>
+          <p className="muted">Select a building or core to view properties</p>
         )}
       </section>
     </aside>
@@ -601,4 +801,18 @@ function formatRotation(value: number) {
 
 function getCardinalRotation(value: number) {
   return Math.round(normalizeRotation(value) / 90) * 90 % 360;
+}
+
+function clampFontSize(value: string, fallback: number) {
+  return Math.max(8, Number(value) || fallback);
+}
+
+function getRoadDisplayLabel(road: SetupRoad) {
+  if (road.type === "primary") return `Primary Road (${formatDistance(road.width)}m)`;
+  if (road.type === "secondary") return `Secondary Road (${formatDistance(road.width)}m)`;
+  return `Pedestrian Pathway (${formatDistance(road.width)}m)`;
+}
+
+function formatDistance(value: number) {
+  return Number.isInteger(value) ? String(value) : value.toFixed(1);
 }

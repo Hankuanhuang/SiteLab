@@ -2,12 +2,14 @@ import type {
   AncillaryBuilding,
   Building,
   BuildingColor,
+  CoreVariant,
   ContextZone,
   Entrance,
   EntranceLabelPosition,
   ExistingBuilding,
   ExistingTree,
   LayoutExport,
+  ProjectSite,
   Sidewalk,
   SiteDimensions,
   SiteLabel,
@@ -15,8 +17,11 @@ import type {
   SetupRoad,
   Tree,
 } from "../types/layout";
+import { DEFAULT_BUILDING_LABEL_FONT_SIZE } from "../models/Building";
+import { DEFAULT_PROJECT_NAME, normalizeProjectName } from "./projectName";
 
 const buildingColors = new Set<string>([
+  "#d1d5db",
   "#ef4444",
   "#f97316",
   "#eab308",
@@ -37,13 +42,14 @@ export function buildLayoutJson(
   siteLabels: SiteLabel[] = [],
   trees: Tree[] = [],
   sidewalks: Sidewalk[] = [],
+  sites: ProjectSite[] = [],
   contextZones: ContextZone[] = [],
   roads: SetupRoad[] = [],
   ancillaryBuildings: AncillaryBuilding[] = [],
   existingBuildings: ExistingBuilding[] = [],
   existingTrees: ExistingTree[] = [],
   entrances: Entrance[] = [],
-  projectName = "Untitled Layout",
+  projectName = DEFAULT_PROJECT_NAME,
   savedAt = new Date().toISOString(),
   siteShape: SiteShape = "rectangle",
   siteVertices: Array<{ x: number; y: number }> = [],
@@ -66,10 +72,25 @@ export function buildLayoutJson(
           }
         : {}),
     },
+    sites: sites.map((projectSite) => ({
+      ...projectSite,
+      length: round(projectSite.length),
+      width: round(projectSite.width),
+      boundary: {
+        ...projectSite.boundary,
+        x: round(projectSite.boundary.x),
+        y: round(projectSite.boundary.y),
+        width: round(projectSite.boundary.width),
+        height: round(projectSite.boundary.height),
+        polygon: projectSite.boundary.polygon?.map((point) => ({ x: round(point.x), y: round(point.y) })),
+        edgeLengths: projectSite.boundary.edgeLengths?.map(round),
+      },
+    })),
     buildings: buildings.map((building) => {
       const base = {
         id: building.id,
         label: building.label,
+        labelFontSize: round(building.labelFontSize ?? DEFAULT_BUILDING_LABEL_FONT_SIZE),
         programs: building.programs,
         x: round(building.x),
         y: round(building.y),
@@ -85,6 +106,16 @@ export function buildLayoutJson(
         };
       }
 
+      if (building.type === "stair" || building.type === "elevator") {
+        return {
+          ...base,
+          type: building.type,
+          coreVariant: building.coreVariant ?? (building.type === "stair" ? "thick" : "single"),
+          length: round(building.length),
+          width: round(building.width),
+        };
+      }
+
       return {
         ...base,
         type: building.type,
@@ -94,6 +125,7 @@ export function buildLayoutJson(
     }),
     siteLabels: siteLabels.map((label) => ({
       ...label,
+      fontSize: label.fontSize ? round(label.fontSize) : undefined,
       x: round(label.x),
       y: round(label.y),
     })),
@@ -105,6 +137,7 @@ export function buildLayoutJson(
     })),
     sidewalks: sidewalks.map((sidewalk) => ({
       ...sidewalk,
+      labelFontSize: sidewalk.labelFontSize ? round(sidewalk.labelFontSize) : undefined,
       width: round(sidewalk.width),
       start: { x: round(sidewalk.start.x), y: round(sidewalk.start.y) },
       end: { x: round(sidewalk.end.x), y: round(sidewalk.end.y) },
@@ -119,6 +152,7 @@ export function buildLayoutJson(
     })),
     roads: roads.map((road) => ({
       ...road,
+      labelFontSize: road.labelFontSize ? round(road.labelFontSize) : undefined,
       width: round(road.width),
       points: road.points.map((point) => ({
         x: round(point.x),
@@ -131,6 +165,7 @@ export function buildLayoutJson(
     })),
     ancillaryBuildings: ancillaryBuildings.map((building) => ({
       ...building,
+      labelFontSize: building.labelFontSize ? round(building.labelFontSize) : undefined,
       points: building.points.map((point) => ({
         x: round(point.x),
         y: round(point.y),
@@ -138,6 +173,7 @@ export function buildLayoutJson(
     })),
     existingBuildings: existingBuildings.map((building) => ({
       ...building,
+      labelFontSize: building.labelFontSize ? round(building.labelFontSize) : undefined,
       points: building.points.map((point) => ({
         x: round(point.x),
         y: round(point.y),
@@ -152,6 +188,7 @@ export function buildLayoutJson(
     })),
     entrances: entrances.map((entrance) => ({
       ...entrance,
+      labelFontSize: entrance.labelFontSize ? round(entrance.labelFontSize) : undefined,
       x: round(entrance.x),
       y: round(entrance.y),
       rotation: round(entrance.rotation),
@@ -175,6 +212,7 @@ export function parseLayoutJson(
   value: unknown,
 ): {
   site: SiteDimensions;
+  sites: ProjectSite[];
   buildings: Building[];
   siteLabels: SiteLabel[];
   trees: Tree[];
@@ -213,6 +251,8 @@ export function parseLayoutJson(
 
   const buildings = value.buildings.map(readBuilding);
   if (buildings.some((building) => building === undefined)) return undefined;
+  const sites = readProjectSites(value.sites);
+  if (sites === undefined) return undefined;
   const siteLabels = readSiteLabels(value.siteLabels);
   if (siteLabels === undefined) return undefined;
   const trees = readTrees(value.trees);
@@ -232,7 +272,7 @@ export function parseLayoutJson(
   const entrances = readEntrances(value.entrances, buildings as Building[]);
   if (entrances === undefined) return undefined;
   const projectName =
-    typeof value.projectName === "string" ? normalizeProjectName(value.projectName) : "Untitled Layout";
+    typeof value.projectName === "string" ? normalizeProjectName(value.projectName) : DEFAULT_PROJECT_NAME;
   const projectId = typeof value.projectId === "string" && value.projectId ? value.projectId : undefined;
   const savedAt =
     typeof value.savedAt === "string" && !Number.isNaN(Date.parse(value.savedAt))
@@ -245,6 +285,7 @@ export function parseLayoutJson(
       width,
       pixelsPerMeter: 10,
     },
+    sites,
     buildings: buildings as Building[],
     siteLabels,
     trees,
@@ -266,12 +307,19 @@ export function parseLayoutJson(
 
 function readBuilding(value: unknown): Building | undefined {
   if (!isRecord(value)) return undefined;
-  if (value.type !== "rectangle" && value.type !== "square" && value.type !== "bridge" && value.type !== "toilet") {
+  if (
+    value.type !== "rectangle" &&
+    value.type !== "square" &&
+    value.type !== "bridge" &&
+    value.type !== "toilet" &&
+    value.type !== "stair" &&
+    value.type !== "elevator"
+  ) {
     return undefined;
   }
 
   const id = typeof value.id === "string" && value.id ? value.id : crypto.randomUUID();
-  const label = typeof value.label === "string" ? value.label : value.type === "square" ? "Square" : "Rectangle";
+  const label = typeof value.label === "string" ? value.label : value.type === "square" ? "Square" : "Building";
   const programs = readPrograms(value.programs);
   const x = readNumber(value.x);
   const y = readNumber(value.y);
@@ -286,7 +334,9 @@ function readBuilding(value: unknown): Building | undefined {
     return {
       id,
       type: "square",
+      coreVariant: undefined,
       label,
+      labelFontSize: readPositiveNumber(value.labelFontSize) ?? DEFAULT_BUILDING_LABEL_FONT_SIZE,
       programs,
       color,
       length: size,
@@ -304,7 +354,14 @@ function readBuilding(value: unknown): Building | undefined {
   return {
     id,
     type: value.type,
+    coreVariant:
+      value.type === "stair"
+        ? readCoreVariant(value.coreVariant) ?? "thick"
+        : value.type === "elevator"
+          ? readCoreVariant(value.coreVariant) ?? "single"
+          : undefined,
     label,
+    labelFontSize: readPositiveNumber(value.labelFontSize) ?? DEFAULT_BUILDING_LABEL_FONT_SIZE,
     programs,
     color,
     length,
@@ -338,7 +395,7 @@ function readSiteLabels(value: unknown): SiteLabel[] | undefined {
     const x = readNumber(item.x);
     const y = readNumber(item.y);
     if (x === undefined || y === undefined) return undefined;
-    return { id, type: "siteLabel" as const, text, x, y };
+    return { id, type: "siteLabel" as const, text, fontSize: readPositiveNumber(item.fontSize), x, y };
   });
 
   return labels.some((label) => label === undefined) ? undefined : (labels as SiteLabel[]);
@@ -385,6 +442,7 @@ function readSidewalks(
         normal,
         width,
         label: typeof item.label === "string" ? item.label : "Sidewalk",
+        labelFontSize: readPositiveNumber(item.labelFontSize),
       };
     }
 
@@ -396,6 +454,7 @@ function readSidewalks(
       ...legacy,
       width,
       label: typeof item.label === "string" ? item.label : "Sidewalk",
+      labelFontSize: readPositiveNumber(item.labelFontSize),
     };
   });
 
@@ -482,6 +541,7 @@ function readRoads(value: unknown): SetupRoad[] | undefined {
       type: item.type,
       width,
       points: roadPoints,
+      labelFontSize: readPositiveNumber(item.labelFontSize),
     };
   });
 
@@ -505,6 +565,7 @@ function readAncillaryBuildings(value: unknown): AncillaryBuilding[] | undefined
       label: typeof item.label === "string" && item.label.trim()
         ? item.label
         : "Ancillary Building",
+      labelFontSize: readPositiveNumber(item.labelFontSize),
     };
   });
 
@@ -530,6 +591,7 @@ function readExistingBuildings(value: unknown): ExistingBuilding[] | undefined {
       label: typeof item.label === "string" && item.label.trim()
         ? item.label
         : "Existing Building",
+      labelFontSize: readPositiveNumber(item.labelFontSize),
     };
   });
 
@@ -587,6 +649,7 @@ function readEntrances(value: unknown, buildings: Building[]): Entrance[] | unde
       id: typeof item.id === "string" && item.id ? item.id : crypto.randomUUID(),
       type: "entrance" as const,
       label,
+      labelFontSize: readPositiveNumber(item.labelFontSize),
       buildingId,
       x,
       y,
@@ -641,8 +704,52 @@ function readPositiveNumbers(value: unknown): number[] | undefined {
   return numbers.some((number) => number === undefined) ? undefined : (numbers as number[]);
 }
 
-function normalizeProjectName(value: string) {
-  return value.trim() || "Untitled Layout";
+function readProjectSites(value: unknown): ProjectSite[] | undefined {
+  if (value === undefined) return [];
+  if (!Array.isArray(value)) return undefined;
+
+  const sites = value.map((item) => {
+    if (!isRecord(item) || typeof item.id !== "string" || typeof item.name !== "string") return undefined;
+    const shape = item.shape === "polygon" ? "polygon" : "rectangle";
+    const length = readPositiveNumber(item.length);
+    const width = readPositiveNumber(item.width);
+    if (length === undefined || width === undefined || !isRecord(item.boundary)) return undefined;
+
+    const x = readNumber(item.boundary.x);
+    const y = readNumber(item.boundary.y);
+    const boundaryWidth = readPositiveNumber(item.boundary.width);
+    const boundaryHeight = readPositiveNumber(item.boundary.height);
+    if (x === undefined || y === undefined || boundaryWidth === undefined || boundaryHeight === undefined) {
+      return undefined;
+    }
+
+    const polygon = item.boundary.polygon === undefined ? undefined : readPoints(item.boundary.polygon);
+    const edgeLengths = item.boundary.edgeLengths === undefined ? undefined : readPositiveNumbers(item.boundary.edgeLengths);
+    if (
+      polygon === undefined && item.boundary.polygon !== undefined ||
+      edgeLengths === undefined && item.boundary.edgeLengths !== undefined
+    ) {
+      return undefined;
+    }
+
+    return {
+      id: item.id,
+      name: item.name.trim() || "Site",
+      shape,
+      length,
+      width,
+      boundary: {
+        x,
+        y,
+        width: boundaryWidth,
+        height: boundaryHeight,
+        polygon,
+        edgeLengths,
+      },
+    } satisfies ProjectSite;
+  });
+
+  return sites.some((item) => item === undefined) ? undefined : sites as ProjectSite[];
 }
 
 function sanitizeFilename(value: string) {
@@ -650,7 +757,7 @@ function sanitizeFilename(value: string) {
     .replace(/[<>:"/\\|?*\u0000-\u001f]/g, "")
     .replace(/[. ]+$/g, "")
     .trim();
-  return normalized || "Untitled Layout";
+  return normalized || DEFAULT_PROJECT_NAME;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -668,6 +775,12 @@ function readPositiveNumber(value: unknown) {
 
 function readColor(value: unknown): BuildingColor | undefined {
   return typeof value === "string" && buildingColors.has(value) ? (value as BuildingColor) : undefined;
+}
+
+function readCoreVariant(value: unknown): CoreVariant | undefined {
+  return value === "thick" || value === "thin" || value === "single" || value === "double"
+    ? value
+    : undefined;
 }
 
 function round(value: number) {

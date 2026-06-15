@@ -1,7 +1,10 @@
 import { defaultSiteData } from "../models/Site";
+import { startNewActiveProject } from "../services/conceptPlanGalleryStorage";
+import { DEFAULT_PROJECT_NAME } from "../services/projectName";
 
 export function SiteSelection() {
   const openEditor = () => {
+    startNewActiveProject(DEFAULT_PROJECT_NAME);
     sessionStorage.setItem("siteData", JSON.stringify(defaultSiteData));
     sessionStorage.removeItem("siteBackgroundImage");
     sessionStorage.removeItem("siteFullPageImage");

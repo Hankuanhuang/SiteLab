@@ -1,0 +1,45 @@
+{
+  "version": 1,
+  "projectId": "3dabda9a-3d94-4efe-a65f-9361abf0ac07",
+  "projectName": "108 sitePlan",
+  "savedAt": "2026-06-15T16:35:31.642Z",
+  "site": {
+    "length": 53,
+    "width": 60,
+    "shape": "rectangle"
+  },
+  "buildings": [],
+  "siteLabels": [],
+  "trees": [],
+  "sidewalks": [],
+  "contextZones": [],
+  "roads": [],
+  "ancillaryBuildings": [],
+  "existingBuildings": [
+    {
+      "id": "5637dccd-3805-4da2-9161-bf68926d12ef",
+      "type": "rectangle",
+      "label": "Existing Building",
+      "points": [
+        {
+          "x": 330.861,
+          "y": 201.458
+        },
+        {
+          "x": 780.854,
+          "y": 201.458
+        },
+        {
+          "x": 780.854,
+          "y": 290.88
+        },
+        {
+          "x": 330.861,
+          "y": 290.88
+        }
+      ]
+    }
+  ],
+  "existingTrees": [],
+  "entrances": []
+}

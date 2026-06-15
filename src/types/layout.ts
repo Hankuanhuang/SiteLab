@@ -26,6 +26,24 @@ export interface SiteDimensions {
   pixelsPerMeter: number;
 }
 
+export interface SiteBoundary {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  polygon?: ContextPoint[];
+  edgeLengths?: number[];
+}
+
+export interface ProjectSite {
+  id: string;
+  name: string;
+  shape: SiteShape;
+  length: number;
+  width: number;
+  boundary: SiteBoundary;
+}
+
 export interface PdfBackgroundMeta {
   page: {
     width: number;
@@ -37,15 +55,9 @@ export interface PdfBackgroundMeta {
     width: number;
     height: number;
   };
-  siteBoundary: {
-    x: number;
-    y: number;
-    width: number;
-    height: number;
-    polygon?: ContextPoint[];
-    edgeLengths?: number[];
-  };
+  siteBoundary: SiteBoundary;
   siteShape?: SiteShape;
+  sites?: ProjectSite[];
   contextZones?: ContextZone[];
   roads?: SetupRoad[];
   ancillaryBuildings?: AncillaryBuilding[];
@@ -77,6 +89,7 @@ export interface SetupRoad {
   type: RoadType;
   width: number;
   points: ContextPoint[];
+  labelFontSize?: number;
   // Legacy rectangle fields are accepted when loading older saved layouts.
   x?: number;
   y?: number;
@@ -91,6 +104,7 @@ export interface AncillaryBuilding {
   type: AncillaryBuildingShape;
   points: ContextPoint[];
   label: string;
+  labelFontSize?: number;
 }
 
 export interface ExistingBuilding {
@@ -98,6 +112,7 @@ export interface ExistingBuilding {
   type: AncillaryBuildingShape;
   points: ContextPoint[];
   label: string;
+  labelFontSize?: number;
 }
 
 export interface ExistingTree {
@@ -109,9 +124,11 @@ export interface ExistingTree {
   label: string;
 }
 
-export type BuildingType = "rectangle" | "square" | "bridge" | "toilet";
+export type BuildingType = "rectangle" | "square" | "bridge" | "toilet" | "stair" | "elevator";
+export type CoreVariant = "thick" | "thin" | "single" | "double";
 
 export type BuildingColor =
+  | "#d1d5db"
   | "#ef4444"
   | "#f97316"
   | "#eab308"
@@ -128,8 +145,10 @@ export type BuildingColor =
 export interface Building {
   id: string;
   type: BuildingType;
+  coreVariant?: CoreVariant;
   color: BuildingColor;
   label: string;
+  labelFontSize?: number;
   programs: ProgramSpace[];
   length: number;
   width: number;
@@ -147,6 +166,7 @@ export interface SiteLabel {
   id: string;
   type: "siteLabel";
   text: string;
+  fontSize?: number;
   x: number;
   y: number;
 }
@@ -168,6 +188,7 @@ export interface Sidewalk {
   normal: ContextPoint;
   width: number;
   label: string;
+  labelFontSize?: number;
 }
 
 export type EntranceLabel =
@@ -182,6 +203,7 @@ export interface Entrance {
   id: string;
   type: "entrance";
   label: string;
+  labelFontSize?: number;
   labelPosition: EntranceLabelPosition;
   buildingId: string;
   x: number;
@@ -221,11 +243,13 @@ export interface LayoutFile {
     vertices?: ContextPoint[];
     edgeLengths?: number[];
   };
+  sites?: ProjectSite[];
   buildings: Array<
     | {
         id: string;
         type: "rectangle";
         label: string;
+        labelFontSize?: number;
         programs: ProgramSpace[];
         length: number;
         width: number;
@@ -238,6 +262,7 @@ export interface LayoutFile {
         id: string;
         type: "square";
         label: string;
+        labelFontSize?: number;
         programs: ProgramSpace[];
         size: number;
         x: number;
@@ -248,7 +273,23 @@ export interface LayoutFile {
     | {
         id: string;
         type: "bridge" | "toilet";
+        coreVariant?: undefined;
         label: string;
+        labelFontSize?: number;
+        programs: ProgramSpace[];
+        length: number;
+        width: number;
+        x: number;
+        y: number;
+        rotation: number;
+        color: BuildingColor;
+      }
+    | {
+        id: string;
+        type: "stair" | "elevator";
+        coreVariant: CoreVariant;
+        label: string;
+        labelFontSize?: number;
         programs: ProgramSpace[];
         length: number;
         width: number;

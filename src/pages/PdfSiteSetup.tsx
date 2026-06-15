@@ -3,6 +3,9 @@ import type { ReactNode } from "react";
 import * as pdfjs from "pdfjs-dist";
 import pdfWorker from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 import { defaultSiteData } from "../models/Site";
+import { startNewActiveProject } from "../services/conceptPlanGalleryStorage";
+import { cloneProjectSite, getProjectSiteArea, getProjectSiteBoundaryPoints, getProjectSiteCenter, getProjectSites, getSiteNameByIndex } from "../services/projectSites";
+import { getProjectNameFromPdfFilename } from "../services/projectName";
 import type {
   AncillaryBuilding,
   AncillaryBuildingShape,
@@ -11,6 +14,7 @@ import type {
   ExistingBuilding,
   ExistingTree,
   PdfBackgroundMeta,
+  ProjectSite,
   RoadType,
   SiteData,
   SiteShape,
@@ -61,11 +65,11 @@ type SelectionStepStatuses = Record<SelectionStep, SelectionStepStatus>;
 const selectionSteps: SelectionStep[] = [
   "crop",
   "boundary",
+  "existingTree",
+  "existingBuilding",
+  "greenPark",
   "road",
   "ancillaryBuilding",
-  "greenPark",
-  "existingBuilding",
-  "existingTree",
 ];
 
 function createSelectionStepStatuses(
@@ -120,6 +124,7 @@ export function PdfSiteSetup() {
   const [boundaryPreviewPoint, setBoundaryPreviewPoint] = useState<ContextPoint>();
   const [edgeLengthDrafts, setEdgeLengthDrafts] = useState<string[]>([]);
   const [siteShape, setSiteShape] = useState<SiteShape>("rectangle");
+  const [projectSites, setProjectSites] = useState<ProjectSite[]>([]);
   const [showShapeDialog, setShowShapeDialog] = useState(false);
   const [shapeDraft, setShapeDraft] = useState<SiteShape>("rectangle");
   const [polygonError, setPolygonError] = useState("");
@@ -184,10 +189,10 @@ export function PdfSiteSetup() {
     renderSize.width &&
       renderSize.height &&
       cropSelection &&
-      (siteShape === "rectangle"
-        ? Boolean(boundarySelection && siteLength > 0 && siteWidth > 0)
-        : polygonBoundary.length >= 3 && areValidEdgeLengths(edgeLengthDrafts, polygonBoundary.length)),
+      projectSites.length,
   );
+  const polygonEdgeLengthState =
+    polygonBoundary.length >= 3 ? resolvePolygonEdgeLengths(polygonBoundary, edgeLengthDrafts) : undefined;
   const pageOptions = useMemo(
     () => Array.from({ length: pageCount }, (_, index) => index + 1),
     [pageCount],
@@ -229,25 +234,36 @@ export function PdfSiteSetup() {
         setPdfName("Saved setup image");
         setPageNumber(savedSite?.site_page_index ?? 1);
         setCropSelection(meta.crop);
-        setSiteShape(meta.siteShape ?? savedSite?.site_shape ?? "rectangle");
-        setSiteLength(savedSite?.scale.length_m ?? defaultSiteData.scale.length_m);
-        setSiteWidth(savedSite?.scale.width_m ?? defaultSiteData.scale.width_m);
-
         const offset = { x: meta.crop.x, y: meta.crop.y };
-        if ((meta.siteShape ?? savedSite?.site_shape) === "polygon" && meta.siteBoundary.polygon?.length) {
-          setPolygonBoundary(meta.siteBoundary.polygon.map((point) => ({
-            x: point.x + offset.x,
-            y: point.y + offset.y,
-          })));
-          setEdgeLengthDrafts((meta.siteBoundary.edgeLengths ?? []).map(String));
-        } else {
-          setBoundarySelection({
-            x: meta.siteBoundary.x + offset.x,
-            y: meta.siteBoundary.y + offset.y,
-            width: meta.siteBoundary.width,
-            height: meta.siteBoundary.height,
-          });
-        }
+        const restoredSites = getProjectSites(
+          meta,
+          savedSite
+            ? {
+                length: savedSite.scale.length_m,
+                width: savedSite.scale.width_m,
+                pixelsPerMeter: savedSite.scale.pixels_per_meter,
+              }
+            : undefined,
+        ).map((projectSite) => ({
+          ...cloneProjectSite(projectSite),
+          boundary: {
+            ...cloneProjectSite(projectSite).boundary,
+            x: projectSite.boundary.x + offset.x,
+            y: projectSite.boundary.y + offset.y,
+            polygon: projectSite.boundary.polygon?.map((point) => ({
+              x: point.x + offset.x,
+              y: point.y + offset.y,
+            })),
+          },
+        }));
+        const primarySite = restoredSites[0];
+        setProjectSites(restoredSites);
+        setSiteShape(primarySite?.shape ?? meta.siteShape ?? savedSite?.site_shape ?? "rectangle");
+        setSiteLength(primarySite?.length ?? savedSite?.scale.length_m ?? defaultSiteData.scale.length_m);
+        setSiteWidth(primarySite?.width ?? savedSite?.scale.width_m ?? defaultSiteData.scale.width_m);
+        setBoundarySelection(undefined);
+        setPolygonBoundary([]);
+        setEdgeLengthDrafts([]);
         setContextZones(
           (meta.contextZones ?? [])
             .filter((zone) => zone.type === "greenPark")
@@ -287,7 +303,7 @@ export function PdfSiteSetup() {
         })));
         setSelectionStepStatuses(
           createSelectionStepStatuses("crop", [
-            "boundary",
+            ...(restoredSites.length ? ["boundary" as const] : []),
             ...((meta.roads?.length ?? 0) > 0 ? ["road" as const] : []),
             ...((meta.ancillaryBuildings?.length ?? 0) > 0
               ? ["ancillaryBuilding" as const]
@@ -311,9 +327,13 @@ export function PdfSiteSetup() {
 
   const fitSite = useCallback(() => {
     const polygonBounds = polygonBoundary.length >= 3 ? getPointsBounds(polygonBoundary) : undefined;
-    const target = siteShape === "polygon" && polygonBounds ? polygonBounds : cropSelection;
+    const latestSite = projectSites[projectSites.length - 1];
+    const target =
+      siteShape === "polygon" && polygonBounds
+        ? polygonBounds
+        : boundarySelection ?? latestSite?.boundary ?? cropSelection;
     if (target) fitBounds(target);
-  }, [cropSelection, fitBounds, polygonBoundary, siteShape]);
+  }, [boundarySelection, cropSelection, fitBounds, polygonBoundary, projectSites, siteShape]);
 
   const handlePdfUpload = async (file?: File) => {
     if (!file) return;
@@ -323,6 +343,7 @@ export function PdfSiteSetup() {
     setCropSelection(undefined);
     setBoundarySelection(undefined);
     setPolygonBoundary([]);
+    setProjectSites([]);
     setDraftBoundaryPolygon([]);
     setBoundaryPreviewPoint(undefined);
     setEdgeLengthDrafts([]);
@@ -349,6 +370,7 @@ export function PdfSiteSetup() {
     try {
       const buffer = await file.arrayBuffer();
       const doc = await pdfjs.getDocument({ data: buffer }).promise;
+      startNewActiveProject(getProjectNameFromPdfFilename(file.name));
       setPdfDocument(doc);
       setPageCount(doc.numPages);
       setPageNumber(1);
@@ -841,7 +863,7 @@ export function PdfSiteSetup() {
       id: crypto.randomUUID(),
       type: "polygon",
       label: "Existing Building",
-      points: draftExistingBuildingPolygon,
+      points: draftExistingBuildingPolygon.map((point) => ({ ...point })),
     });
     setDraftExistingBuildingPolygon([]);
     setExistingBuildingPreviewPoint(undefined);
@@ -960,7 +982,12 @@ export function PdfSiteSetup() {
 
   const confirmPendingExistingBuilding = () => {
     if (!pendingExistingBuilding) return;
-    setExistingBuildings((current) => [...current, pendingExistingBuilding]);
+    const building = {
+      ...pendingExistingBuilding,
+      label: pendingExistingBuilding.label.trim() || "Existing Building",
+      points: pendingExistingBuilding.points.map((point) => ({ ...point })),
+    };
+    setExistingBuildings((current) => [...current, building]);
     setPendingExistingBuilding(undefined);
     setDraftExistingBuildingPolygon([]);
     setExistingBuildingPreviewPoint(undefined);
@@ -1011,11 +1038,37 @@ export function PdfSiteSetup() {
     changeSelectionMode("existingTree");
   };
 
-  const confirmPendingExistingTree = () => {
+  const confirmPendingExistingTree = useCallback(() => {
     if (!pendingExistingTree) return;
     setExistingTrees((current) => [...current, pendingExistingTree]);
     setPendingExistingTree(undefined);
-  };
+    setSelectionMode("existingTree");
+  }, [pendingExistingTree]);
+
+  useEffect(() => {
+    if (!pendingExistingTree) return;
+
+    const handleExistingTreeConfirmationKeyDown = (event: KeyboardEvent) => {
+      if (
+        event.key !== "Enter" ||
+        event.repeat ||
+        event.ctrlKey ||
+        event.metaKey ||
+        event.altKey
+      ) {
+        return;
+      }
+
+      event.preventDefault();
+      event.stopPropagation();
+      confirmPendingExistingTree();
+    };
+
+    window.addEventListener("keydown", handleExistingTreeConfirmationKeyDown, true);
+    return () => {
+      window.removeEventListener("keydown", handleExistingTreeConfirmationKeyDown, true);
+    };
+  }, [confirmPendingExistingTree, pendingExistingTree]);
 
   const redrawPendingExistingTree = () => {
     setPendingExistingTree(undefined);
@@ -1024,7 +1077,7 @@ export function PdfSiteSetup() {
 
   const cancelPendingExistingTree = () => {
     setPendingExistingTree(undefined);
-    setSelectionMode("crop");
+    setSelectionMode("existingTree");
   };
 
   const finishExistingTreeMode = () => {
@@ -1041,13 +1094,22 @@ export function PdfSiteSetup() {
   }
 
   function getSetupPixelsPerMeter() {
-    const boundaryWidth = boundarySelection?.width ?? getPointsBounds(polygonBoundary)?.width;
-    const boundaryHeight = boundarySelection?.height ?? getPointsBounds(polygonBoundary)?.height;
+    const latestSite = projectSites[projectSites.length - 1];
+    const boundaryWidth =
+      boundarySelection?.width ??
+      getPointsBounds(polygonBoundary)?.width ??
+      latestSite?.boundary.width;
+    const boundaryHeight =
+      boundarySelection?.height ??
+      getPointsBounds(polygonBoundary)?.height ??
+      latestSite?.boundary.height;
     const effectiveWidth = boundaryWidth ?? cropSelection?.width;
     const effectiveHeight = boundaryHeight ?? cropSelection?.height;
+    const effectiveSiteWidth = latestSite?.width ?? siteWidth;
+    const effectiveSiteLength = latestSite?.length ?? siteLength;
     return Math.min(
-      effectiveWidth && siteWidth > 0 ? effectiveWidth / siteWidth : 1,
-      effectiveHeight && siteLength > 0 ? effectiveHeight / siteLength : 1,
+      effectiveWidth && effectiveSiteWidth > 0 ? effectiveWidth / effectiveSiteWidth : 1,
+      effectiveHeight && effectiveSiteLength > 0 ? effectiveHeight / effectiveSiteLength : 1,
     );
   }
 
@@ -1191,6 +1253,64 @@ export function PdfSiteSetup() {
     setActiveRoadWidth(undefined);
   };
 
+  const addRectangleProjectSite = (length: number, width: number) => {
+    if (!boundarySelection || !cropSelection) return;
+
+    const orientedSite = orientSiteDimensionsToCrop(boundarySelection, length, width);
+    setProjectSites((current) => [
+      ...current,
+      {
+        id: crypto.randomUUID(),
+        name: getSiteNameByIndex(current.length),
+        shape: "rectangle",
+        length: orientedSite.length,
+        width: orientedSite.width,
+        boundary: {
+          x: round(boundarySelection.x),
+          y: round(boundarySelection.y),
+          width: round(boundarySelection.width),
+          height: round(boundarySelection.height),
+        },
+      },
+    ]);
+    setSiteLength(orientedSite.length);
+    setSiteWidth(orientedSite.width);
+    setBoundarySelection(undefined);
+    setSelectionStepStatuses((current) => ({ ...current, boundary: "completed" }));
+  };
+
+  const addPolygonProjectSite = () => {
+    if (!cropSelection || polygonBoundary.length < 3 || !polygonEdgeLengthState?.isUsable) return;
+
+    const polygonBounds = getPointsBounds(polygonBoundary);
+    const pixelsPerMeter = polygonEdgeLengthState.pixelsPerMeter;
+    if (!polygonBounds || !pixelsPerMeter) return;
+
+    setProjectSites((current) => [
+      ...current,
+      {
+        id: crypto.randomUUID(),
+        name: getSiteNameByIndex(current.length),
+        shape: "polygon",
+        length: round(polygonBounds.height / pixelsPerMeter),
+        width: round(polygonBounds.width / pixelsPerMeter),
+        boundary: {
+          x: round(polygonBounds.x),
+          y: round(polygonBounds.y),
+          width: round(polygonBounds.width),
+          height: round(polygonBounds.height),
+          polygon: polygonBoundary.map((point) => ({ x: round(point.x), y: round(point.y) })),
+          edgeLengths: polygonEdgeLengthState.resolvedLengths.map(round),
+        },
+      },
+    ]);
+    setSiteLength(round(polygonBounds.height / pixelsPerMeter));
+    setSiteWidth(round(polygonBounds.width / pixelsPerMeter));
+    setPolygonBoundary([]);
+    setEdgeLengthDrafts([]);
+    setSelectionStepStatuses((current) => ({ ...current, boundary: "completed" }));
+  };
+
   const confirmSiteDimensions = () => {
     const length = Number(siteLengthDraft);
     const width = Number(siteWidthDraft);
@@ -1207,13 +1327,9 @@ export function PdfSiteSetup() {
       return;
     }
 
-    setSiteLength(length);
-    setSiteWidth(width);
+    addRectangleProjectSite(length, width);
     setShowDimensionsDialog(false);
     setDimensionsError("");
-    setSiteShape("rectangle");
-    setPolygonBoundary([]);
-    setEdgeLengthDrafts([]);
   };
 
   const cancelSiteDimensions = () => {
@@ -1304,64 +1420,55 @@ export function PdfSiteSetup() {
     if (!sourceCanvas || !canContinue) return;
 
     if (!cropSelection) return;
-    const polygonBounds = siteShape === "polygon" ? getPointsBounds(polygonBoundary) : undefined;
-    if (siteShape === "rectangle" && !boundarySelection) return;
-    if (siteShape === "polygon" && !polygonBounds) return;
-
-    const selectedBounds = siteShape === "rectangle" ? boundarySelection! : polygonBounds!;
+    const primarySite = projectSites[0];
+    if (!primarySite) return;
+    const primaryBoundary = primarySite.boundary;
     const relativeBoundary = {
-      x: selectedBounds.x - cropSelection.x,
-      y: selectedBounds.y - cropSelection.y,
-      width: selectedBounds.width,
-      height: selectedBounds.height,
+      x: primaryBoundary.x - cropSelection.x,
+      y: primaryBoundary.y - cropSelection.y,
+      width: primaryBoundary.width,
+      height: primaryBoundary.height,
+      polygon: primaryBoundary.polygon?.map((point) => ({
+        x: point.x - cropSelection.x,
+        y: point.y - cropSelection.y,
+      })),
+      edgeLengths: primaryBoundary.edgeLengths?.map(round),
     };
-    const edgeLengths = edgeLengthDrafts.map(Number);
-    const polygonPixelsPerMeter =
-      siteShape === "polygon" ? getPolygonPixelsPerMeter(polygonBoundary, edgeLengths) : undefined;
-    const orientedSite =
-      siteShape === "rectangle"
-        ? orientSiteDimensionsToCrop(selectedBounds, siteLength, siteWidth)
-        : {
-            length: selectedBounds.height / polygonPixelsPerMeter!,
-            width: selectedBounds.width / polygonPixelsPerMeter!,
-          };
     const pageImage = sourceCanvas.toDataURL("image/jpeg", 0.82);
     const croppedImage = cropCanvas(sourceCanvas, cropSelection);
     const pixelsPerMeter = Math.max(
       4,
       Math.min(
         14,
-        siteShape === "polygon"
-          ? polygonPixelsPerMeter!
-          : Math.min(selectedBounds.height / orientedSite.length, selectedBounds.width / orientedSite.width),
+        Math.min(primaryBoundary.height / primarySite.length, primaryBoundary.width / primarySite.width),
       ),
     );
 
     const siteData: SiteData = {
       ...defaultSiteData,
       site_page_index: pageNumber,
-      site_shape: siteShape,
+      site_shape: primarySite.shape,
       geometry: {
         x1: round(relativeBoundary.x),
         y1: round(relativeBoundary.y),
         x2: round(relativeBoundary.x + relativeBoundary.width),
         y2: round(relativeBoundary.y + relativeBoundary.height),
       },
-      ...(siteShape === "polygon"
+      ...(primarySite.shape === "polygon"
         ? {
             polygon: {
-              vertices: polygonBoundary.map((point) => ({
-                x: round(point.x - cropSelection.x),
-                y: round(point.y - cropSelection.y),
+              vertices: relativeBoundary.polygon!.map((point) => ({
+                x: round(point.x),
+                y: round(point.y),
               })),
-              edgeLengths: edgeLengths.map(round),
+              edgeLengths: relativeBoundary.edgeLengths!,
             },
           }
         : {}),
       scale: {
         pixels_per_meter: round(pixelsPerMeter),
-        length_m: orientedSite.length,
-        width_m: orientedSite.width,
+        length_m: primarySite.length,
+        width_m: primarySite.width,
       },
     };
     const backgroundMeta: PdfBackgroundMeta = {
@@ -1380,17 +1487,30 @@ export function PdfSiteSetup() {
         y: round(relativeBoundary.y),
         width: round(relativeBoundary.width),
         height: round(relativeBoundary.height),
-        ...(siteShape === "polygon"
+        ...(primarySite.shape === "polygon"
           ? {
-              polygon: polygonBoundary.map((point) => ({
-                x: round(point.x - cropSelection.x),
-                y: round(point.y - cropSelection.y),
+              polygon: relativeBoundary.polygon!.map((point) => ({
+                x: round(point.x),
+                y: round(point.y),
               })),
-              edgeLengths: edgeLengths.map(round),
+              edgeLengths: relativeBoundary.edgeLengths,
             }
           : {}),
       },
-      siteShape,
+      siteShape: primarySite.shape,
+      sites: projectSites.map((projectSite) => ({
+        ...projectSite,
+        boundary: {
+          ...projectSite.boundary,
+          x: round(projectSite.boundary.x - cropSelection.x),
+          y: round(projectSite.boundary.y - cropSelection.y),
+          polygon: projectSite.boundary.polygon?.map((point) => ({
+            x: round(point.x - cropSelection.x),
+            y: round(point.y - cropSelection.y),
+          })),
+          edgeLengths: projectSite.boundary.edgeLengths?.map(round),
+        },
+      })),
       contextZones: contextZones.map((zone) => ({
         ...zone,
         points: zone.points.map((point) => ({
@@ -1544,6 +1664,30 @@ export function PdfSiteSetup() {
                 Select Site Boundary
               </button>
               <button
+                className={getSelectionStepClass(selectionStepStatuses.existingTree)}
+                type="button"
+                disabled={!cropSelection}
+                onClick={openTreeSizeDialog}
+              >
+                Select Existing Tree
+              </button>
+              <button
+                className={getSelectionStepClass(selectionStepStatuses.existingBuilding)}
+                type="button"
+                disabled={!cropSelection}
+                onClick={openExistingBuildingShapeDialog}
+              >
+                Select Existing Building
+              </button>
+              <button
+                className={getSelectionStepClass(selectionStepStatuses.greenPark)}
+                type="button"
+                disabled={!cropSelection}
+                onClick={openGreenParkShapeDialog}
+              >
+                Select Green Park Area
+              </button>
+              <button
                 className={getSelectionStepClass(selectionStepStatuses.road)}
                 type="button"
                 disabled={!cropSelection}
@@ -1558,30 +1702,6 @@ export function PdfSiteSetup() {
                 onClick={openAncillaryShapeDialog}
               >
                 Select Ancillary Building
-              </button>
-              <button
-                className={getSelectionStepClass(selectionStepStatuses.greenPark)}
-                type="button"
-                disabled={!cropSelection}
-                onClick={openGreenParkShapeDialog}
-              >
-                Select Green Park Area
-              </button>
-              <button
-                className={getSelectionStepClass(selectionStepStatuses.existingBuilding)}
-                type="button"
-                disabled={!cropSelection}
-                onClick={openExistingBuildingShapeDialog}
-              >
-                Select Existing Building
-              </button>
-              <button
-                className={getSelectionStepClass(selectionStepStatuses.existingTree)}
-                type="button"
-                disabled={!cropSelection}
-                onClick={openTreeSizeDialog}
-              >
-                Select Existing Tree
               </button>
             </div>
             {selectionMode === "boundaryPolygon" ? (
@@ -1626,14 +1746,47 @@ export function PdfSiteSetup() {
                         setPolygonError("");
                       }}
                     />
+                    {!edgeLengthDrafts[index]?.trim() && polygonEdgeLengthState?.isUsable ? (
+                      <span className="edgeLengthAutoValue">
+                        {formatPolygonEdgeLength(polygonEdgeLengthState.resolvedLengths[index])} m
+                        <span className="edgeLengthAutoBadge">Auto Calculated</span>
+                      </span>
+                    ) : null}
                   </label>
                 ))}
-                {!areValidEdgeLengths(edgeLengthDrafts, polygonBoundary.length) ? (
-                  <p className="errorText">Enter a valid length for every polygon edge.</p>
+                {polygonEdgeLengthState?.hasInvalidValues ? (
+                  <p className="errorText">Only filled polygon edge fields need a valid positive length.</p>
+                ) : null}
+                {!polygonEdgeLengthState?.hasKnownValues ? (
+                  <p className="errorText">Enter at least one polygon edge length to scale the polygon.</p>
                 ) : null}
               </div>
             ) : null}
             {polygonError ? <p className="errorText">{polygonError}</p> : null}
+            {selectionMode === "boundaryPolygon" && polygonBoundary.length ? (
+              <div className="polygonActions">
+                <button
+                  type="button"
+                  disabled={!polygonEdgeLengthState?.isUsable}
+                  onClick={addPolygonProjectSite}
+                >
+                  Add Site Boundary
+                </button>
+              </div>
+            ) : null}
+            {projectSites.length ? (
+              <div className="edgeLengthPanel">
+                <p className="eyebrow">Defined Sites</p>
+                {projectSites.map((projectSite, index) => (
+                  <div key={projectSite.id} className="muted">
+                    <strong>{projectSite.name}</strong>
+                    <span> {projectSite.length.toFixed(1)}m × {projectSite.width.toFixed(1)}m</span>
+                    <span> ({round(getProjectSiteArea(projectSite))} m²)</span>
+                    {index === 0 ? <span className="edgeLengthAutoBadge">Primary Site</span> : null}
+                  </div>
+                ))}
+              </div>
+            ) : null}
             {selectionMode === "greenParkRectangle" ||
             selectionMode === "greenParkPolygon" ? (
               <div className="ancillaryToolStatus greenParkToolStatus">
@@ -1854,6 +2007,13 @@ export function PdfSiteSetup() {
           >
             <canvas ref={canvasRef} />
             {cropSelection ? <SelectionOverlay selection={cropSelection} variant="crop" /> : null}
+            {projectSites.map((projectSite, index) => (
+              <ProjectSiteOverlay
+                key={projectSite.id}
+                projectSite={projectSite}
+                isPrimary={index === 0}
+              />
+            ))}
             {selectionMode === "boundaryRectangle" && boundarySelection ? (
               <SelectionOverlay selection={boundarySelection} variant="boundaryRectangle" />
             ) : null}
@@ -1893,7 +2053,11 @@ export function PdfSiteSetup() {
               <ExistingBuildingOverlay
                 key={building.id}
                 building={building}
-                label={`Existing Building ${index + 1}`}
+                label={
+                  building.label.trim() && building.label !== "Existing Building"
+                    ? building.label
+                    : `Existing Building ${index + 1}`
+                }
               />
             ))}
             {pendingExistingBuilding ? (
@@ -2406,12 +2570,37 @@ export function PdfSiteSetup() {
           initialPosition={{ x: 360, y: 150 }}
           onCancel={cancelPendingExistingBuilding}
         >
-          <div className="floatingToolForm">
+          <form
+            className="floatingToolForm"
+            onSubmit={(event) => {
+              event.preventDefault();
+              confirmPendingExistingBuilding();
+            }}
+          >
+            <label>
+              Building Name
+              <input
+                autoFocus
+                value={pendingExistingBuilding.label}
+                onChange={(event) =>
+                  setPendingExistingBuilding((current) =>
+                    current ? { ...current, label: event.target.value } : current,
+                  )
+                }
+              />
+            </label>
+            <label>
+              Shape
+              <input
+                value={pendingExistingBuilding.type === "polygon" ? "Polygon" : "Rectangle"}
+                readOnly
+              />
+            </label>
             <p className="muted">
               Review the traced {pendingExistingBuilding.type} footprint before saving it.
             </p>
             <div className="floatingPanelActions ancillaryConfirmationActions">
-              <button type="button" onClick={confirmPendingExistingBuilding}>Confirm</button>
+              <button type="submit">Confirm</button>
               <button className="secondaryButton" type="button" onClick={redrawPendingExistingBuilding}>
                 Redraw
               </button>
@@ -2419,7 +2608,7 @@ export function PdfSiteSetup() {
                 Cancel
               </button>
             </div>
-          </div>
+          </form>
         </FloatingToolPanel>
       ) : null}
       {pendingExistingTree ? (
@@ -2428,12 +2617,18 @@ export function PdfSiteSetup() {
           initialPosition={{ x: 360, y: 150 }}
           onCancel={cancelPendingExistingTree}
         >
-          <div className="floatingToolForm">
+          <form
+            className="floatingToolForm"
+            onSubmit={(event) => {
+              event.preventDefault();
+              confirmPendingExistingTree();
+            }}
+          >
             <p className="muted">
-              Tree diameter: {pendingExistingTree.diameter}m
+              Tree diameter: {pendingExistingTree.diameter}m. Press Enter to confirm or Esc to cancel.
             </p>
             <div className="floatingPanelActions ancillaryConfirmationActions">
-              <button type="button" onClick={confirmPendingExistingTree}>Confirm</button>
+              <button autoFocus type="submit">Confirm</button>
               <button className="secondaryButton" type="button" onClick={redrawPendingExistingTree}>
                 Redraw
               </button>
@@ -2441,7 +2636,7 @@ export function PdfSiteSetup() {
                 Cancel
               </button>
             </div>
-          </div>
+          </form>
         </FloatingToolPanel>
       ) : null}
     </main>
@@ -2630,6 +2825,66 @@ function SelectionOverlay({
         height: selection.height,
       }}
     />
+  );
+}
+
+function ProjectSiteOverlay({
+  projectSite,
+  isPrimary,
+}: {
+  projectSite: ProjectSite;
+  isPrimary: boolean;
+}) {
+  const center = getProjectSiteCenter(projectSite);
+  const points = getProjectSiteBoundaryPoints(projectSite);
+
+  return (
+    <svg className="contextZoneOverlay" width="100%" height="100%">
+      {projectSite.shape === "polygon" ? (
+        <polygon
+          points={points.map((point) => `${point.x},${point.y}`).join(" ")}
+          fill="rgba(59, 130, 246, 0.08)"
+          stroke={isPrimary ? "#1d4ed8" : "#2563eb"}
+          strokeWidth={3}
+          pointerEvents="none"
+        />
+      ) : (
+        <rect
+          x={projectSite.boundary.x}
+          y={projectSite.boundary.y}
+          width={projectSite.boundary.width}
+          height={projectSite.boundary.height}
+          fill="rgba(59, 130, 246, 0.08)"
+          stroke={isPrimary ? "#1d4ed8" : "#2563eb"}
+          strokeWidth={3}
+          pointerEvents="none"
+        />
+      )}
+      <text
+        x={center.x}
+        y={center.y - 10}
+        fill={isPrimary ? "#1e3a8a" : "#1d4ed8"}
+        fontSize={18}
+        fontWeight={700}
+        textAnchor="middle"
+        dominantBaseline="middle"
+        pointerEvents="none"
+      >
+        {projectSite.name}
+      </text>
+      <text
+        x={center.x}
+        y={center.y + 14}
+        fill={isPrimary ? "#1e3a8a" : "#1d4ed8"}
+        fontSize={14}
+        fontWeight={600}
+        textAnchor="middle"
+        dominantBaseline="middle"
+        pointerEvents="none"
+      >
+        {projectSite.length.toFixed(1)}m × {projectSite.width.toFixed(1)}m
+      </text>
+    </svg>
   );
 }
 
@@ -3180,20 +3435,40 @@ function getPointsBounds(points: ContextPoint[]): SelectionRect | undefined {
   };
 }
 
-function getPolygonPixelsPerMeter(points: ContextPoint[], edgeLengths: number[]) {
-  const pixelPerimeter = points.reduce((total, point, index) => {
+function resolvePolygonEdgeLengths(points: ContextPoint[], drafts: string[]) {
+  const pixelLengths = points.map((point, index) => {
     const next = points[(index + 1) % points.length];
-    return total + Math.hypot(next.x - point.x, next.y - point.y);
-  }, 0);
-  const realPerimeter = edgeLengths.reduce((total, length) => total + length, 0);
-  return pixelPerimeter / realPerimeter;
+    return Math.hypot(next.x - point.x, next.y - point.y);
+  });
+  const parsedValues = pixelLengths.map((_, index) => {
+    const value = drafts[index]?.trim() ?? "";
+    if (!value) return undefined;
+    const parsed = Number(value);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+  });
+  const knownEdges = parsedValues.flatMap((value, index) =>
+    typeof value === "number" ? [{ pixelLength: pixelLengths[index], realLength: value }] : [],
+  );
+  const numerator = knownEdges.reduce((total, edge) => total + edge.pixelLength * edge.realLength, 0);
+  const denominator = knownEdges.reduce((total, edge) => total + edge.pixelLength ** 2, 0);
+  const metersPerPixel = denominator > 0 ? numerator / denominator : undefined;
+
+  return {
+    hasKnownValues: knownEdges.length > 0,
+    hasInvalidValues: parsedValues.some((value) => value === null),
+    isUsable: knownEdges.length > 0 && parsedValues.every((value) => value === null || value === undefined || value > 0),
+    pixelsPerMeter: metersPerPixel ? 1 / metersPerPixel : undefined,
+    resolvedLengths:
+      metersPerPixel === undefined
+        ? []
+        : pixelLengths.map((pixelLength, index) =>
+            typeof parsedValues[index] === "number" ? parsedValues[index] : pixelLength * metersPerPixel,
+          ),
+  };
 }
 
-function areValidEdgeLengths(values: string[], edgeCount: number) {
-  return (
-    values.length === edgeCount &&
-    values.every((value) => value.trim() && Number.isFinite(Number(value)) && Number(value) > 0)
-  );
+function formatPolygonEdgeLength(value: number) {
+  return Number.isInteger(value) ? String(value) : value.toFixed(2);
 }
 
 function getVertexLabel(index: number) {

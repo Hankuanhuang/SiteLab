@@ -1,4 +1,8 @@
 import { Fragment, useCallback, useEffect, useRef, useState } from "react";
+import type {
+  MouseEvent as ReactMouseEvent,
+  WheelEvent as ReactWheelEvent,
+} from "react";
 import type Konva from "konva";
 import { Arrow, Circle, Group, Image, Layer, Line, Rect, Stage, Text } from "react-konva";
 import type {
@@ -10,12 +14,15 @@ import type {
   ExistingTree,
   PdfBackgroundMeta,
   PdfBackgroundView,
+  ProjectSite,
   Sidewalk,
   SiteDimensions,
   SiteLabel,
   SetupRoad,
 } from "../types/layout";
 import type { Tree } from "../types/layout";
+import { getPrimaryProjectSite, getProjectSiteBoundaryPoints, getProjectSites } from "../services/projectSites";
+import { getEntranceAnnotationGap, getEntranceLabelCoordinates } from "../utils/entranceAnnotation";
 import { getSidewalkPoints, getUnitNormal } from "../utils/sidewalkGeometry";
 import { BuildingShape } from "./BuildingShape";
 
@@ -31,6 +38,10 @@ interface SiteCanvasProps {
   selectedTreeId?: string;
   selectedSidewalkId?: string;
   selectedEntranceId?: string;
+  selectedProjectSiteId?: string;
+  selectedRoadId?: string;
+  selectedAncillaryBuildingId?: string;
+  selectedExistingBuildingId?: string;
   isTreeToolActive: boolean;
   isSidewalkToolActive: boolean;
   isEntranceToolActive: boolean;
@@ -40,12 +51,17 @@ interface SiteCanvasProps {
   backgroundOpacity: number;
   showBackground: boolean;
   showDistanceLines: boolean;
+  onSiteChange: (site: SiteDimensions) => void;
   onSelectBuilding: (id?: string) => void;
   onSelectSiteLabel: (id?: string) => void;
   onSelectTree: (id?: string) => void;
   onEditTreeDiameter: (tree: Tree) => void;
   onSelectSidewalk: (id?: string) => void;
   onSelectEntrance: (id?: string) => void;
+  onSelectProjectSite: (id?: string) => void;
+  onSelectRoadLabel: (id?: string) => void;
+  onSelectAncillaryBuildingLabel: (id?: string) => void;
+  onSelectExistingBuildingLabel: (id?: string) => void;
   onPlaceEntrance: (building: Building, localX: number, localY: number) => void;
   onPlaceTree: (x: number, y: number) => void;
   onPlaceSidewalk: (sidewalk: Omit<Sidewalk, "id" | "type" | "width" | "label">) => void;
@@ -62,16 +78,29 @@ const gridRowSize = 24;
 const topGridPaddingRows = 2.5;
 const bottomGridPaddingRows = 2;
 const defaultTreePlacementRadius = 2;
+const siteBadgePreferredWidth = 220;
+const siteBadgeMinimumWidth = 160;
+const siteBadgeEstimatedHeight = 168;
+const siteBadgeGap = 18;
+const maximumZoomScale = 12;
 const minimumStageSize = {
   width: 720,
   height: 520,
 };
+const entranceLabelMeasureContext =
+  typeof document !== "undefined" ? document.createElement("canvas").getContext("2d") : null;
 
 interface AnalysisBounds {
   minX: number;
   maxX: number;
   minY: number;
   maxY: number;
+}
+
+interface CanvasCamera {
+  scale: number;
+  x: number;
+  y: number;
 }
 
 export function SiteCanvas({
@@ -86,6 +115,10 @@ export function SiteCanvas({
   selectedTreeId,
   selectedSidewalkId,
   selectedEntranceId,
+  selectedProjectSiteId,
+  selectedRoadId,
+  selectedAncillaryBuildingId,
+  selectedExistingBuildingId,
   isTreeToolActive,
   isSidewalkToolActive,
   isEntranceToolActive,
@@ -95,12 +128,17 @@ export function SiteCanvas({
   backgroundOpacity,
   showBackground,
   showDistanceLines,
+  onSiteChange,
   onSelectBuilding,
   onSelectSiteLabel,
   onSelectTree,
   onEditTreeDiameter,
   onSelectSidewalk,
   onSelectEntrance,
+  onSelectProjectSite,
+  onSelectRoadLabel,
+  onSelectAncillaryBuildingLabel,
+  onSelectExistingBuildingLabel,
   onPlaceEntrance,
   onPlaceTree,
   onPlaceSidewalk,
@@ -116,6 +154,8 @@ export function SiteCanvas({
   const [viewport, setViewport] = useState(minimumStageSize);
   const [hoveredBoundaryEdge, setHoveredBoundaryEdge] = useState<number>();
   const [sidewalkPreview, setSidewalkPreview] = useState<Sidewalk>();
+  const [isPanning, setIsPanning] = useState(false);
+  const panPointerRef = useRef<{ clientX: number; clientY: number } | undefined>(undefined);
   const fullPage = backgroundMeta?.page ?? {
     width: site.width,
     height: site.length,
@@ -126,17 +166,30 @@ export function SiteCanvas({
     width: fullPage.width,
     height: fullPage.height,
   };
+  const projectSites = getProjectSites(backgroundMeta, site);
+  const primaryProjectSite = getPrimaryProjectSite(backgroundMeta, site);
+  const [camera, setCamera] = useState<CanvasCamera>(() => getCropFitCamera(minimumStageSize, crop, backgroundView));
   const sourcePage = backgroundView === "full" ? fullPage : { width: crop.width, height: crop.height };
-  const pageScale = getFittedScale(sourcePage.width, sourcePage.height, viewport);
+  const pageScale = camera.scale;
   const pageSize = {
     width: sourcePage.width * pageScale,
     height: sourcePage.height * pageScale,
   };
   const pageOffset = {
-    x: Math.max(0, (viewport.width - pageSize.width) / 2),
-    y: getTopFitOffset(viewport.height, pageSize.height),
+    x: camera.x,
+    y: camera.y,
   };
-  const cropRelativeBoundary = backgroundMeta?.siteBoundary ?? {
+  const cropSourceOffset = {
+    x: (backgroundView === "full" ? crop.x : 0) * pageScale,
+    y: (backgroundView === "full" ? crop.y : 0) * pageScale,
+  };
+  const cropFrame = {
+    x: pageOffset.x + cropSourceOffset.x,
+    y: pageOffset.y + cropSourceOffset.y,
+    width: crop.width * pageScale,
+    height: crop.height * pageScale,
+  };
+  const cropRelativeBoundary = primaryProjectSite?.boundary ?? backgroundMeta?.siteBoundary ?? {
     x: 0,
     y: 0,
     width: sourcePage.width,
@@ -157,10 +210,10 @@ export function SiteCanvas({
     height: sourceBoundary.height * pageScale,
   };
   const polygonBoundaryPoints =
-    backgroundMeta?.siteShape === "polygon" && backgroundMeta.siteBoundary.polygon
-      ? backgroundMeta.siteBoundary.polygon.flatMap((point) => [
-          (point.x - backgroundMeta.siteBoundary.x) * pageScale,
-          (point.y - backgroundMeta.siteBoundary.y) * pageScale,
+    primaryProjectSite?.shape === "polygon" && primaryProjectSite.boundary.polygon
+      ? primaryProjectSite.boundary.polygon.flatMap((point) => [
+          (point.x - primaryProjectSite.boundary.x) * pageScale,
+          (point.y - primaryProjectSite.boundary.y) * pageScale,
         ])
       : [];
   const boundaryVertices = getBoundaryVertices(site, backgroundMeta);
@@ -194,16 +247,28 @@ export function SiteCanvas({
     buildingScale,
   );
   const distanceLabels = getBuildingDistanceLabels(buildings, selectedBuildingId, buildingScale);
+  const siteBadgeWidth = Math.min(
+    siteBadgePreferredWidth,
+    Math.max(siteBadgeMinimumWidth, cropFrame.x - siteBadgeGap * 2),
+  );
+  const siteBadgeLeft = Math.max(siteBadgeGap, cropFrame.x - siteBadgeWidth - siteBadgeGap);
+  const siteBadgeTop = clampNumber(
+    cropFrame.y + cropFrame.height - siteBadgeEstimatedHeight - siteBadgeGap,
+    siteBadgeGap,
+    Math.max(siteBadgeGap, viewport.height - siteBadgeEstimatedHeight - siteBadgeGap),
+  );
 
   const fitToScreen = useCallback(() => {
     const rect = wrapRef.current?.getBoundingClientRect();
     if (!rect) return;
 
-    setViewport({
+    const nextViewport = {
       width: Math.max(1, Math.floor(rect.width)),
       height: Math.max(1, Math.floor(rect.height)),
-    });
-  }, []);
+    };
+    setViewport(nextViewport);
+    setCamera(getCropFitCamera(nextViewport, crop, backgroundView));
+  }, [backgroundView, crop.height, crop.width, crop.x, crop.y]);
 
   useEffect(() => {
     if (!backgroundImageSrc) {
@@ -265,6 +330,10 @@ export function SiteCanvas({
     onSelectTree(undefined);
     onSelectSidewalk(undefined);
     onSelectEntrance(undefined);
+    onSelectProjectSite(undefined);
+    onSelectRoadLabel(undefined);
+    onSelectAncillaryBuildingLabel(undefined);
+    onSelectExistingBuildingLabel(undefined);
   };
 
   const updateSidewalkPreview = (event: Konva.KonvaEventObject<MouseEvent | TouchEvent>) => {
@@ -316,21 +385,143 @@ export function SiteCanvas({
     }
   }, [isSidewalkToolActive]);
 
+  useEffect(() => {
+    if (!isPanning) return;
+
+    const finishPanning = () => {
+      panPointerRef.current = undefined;
+      setIsPanning(false);
+    };
+    const handlePanMove = (event: MouseEvent) => {
+      const previous = panPointerRef.current;
+      if (!previous || !(event.buttons & 4)) {
+        finishPanning();
+        return;
+      }
+
+      event.preventDefault();
+      const deltaX = event.clientX - previous.clientX;
+      const deltaY = event.clientY - previous.clientY;
+      panPointerRef.current = { clientX: event.clientX, clientY: event.clientY };
+      setCamera((current) =>
+        constrainCamera(
+          {
+            ...current,
+            x: current.x + deltaX,
+            y: current.y + deltaY,
+          },
+          viewport,
+          crop,
+          backgroundView,
+        ),
+      );
+    };
+    const handlePanEnd = (event: MouseEvent) => {
+      if (event.button === 1) finishPanning();
+    };
+
+    window.addEventListener("mousemove", handlePanMove, true);
+    window.addEventListener("mouseup", handlePanEnd, true);
+    window.addEventListener("blur", finishPanning);
+    return () => {
+      window.removeEventListener("mousemove", handlePanMove, true);
+      window.removeEventListener("mouseup", handlePanEnd, true);
+      window.removeEventListener("blur", finishPanning);
+    };
+  }, [backgroundView, crop, isPanning, viewport]);
+
+  const startMiddleMousePan = (event: ReactMouseEvent<HTMLDivElement>) => {
+    if (event.button !== 1) return;
+    event.preventDefault();
+    event.stopPropagation();
+    panPointerRef.current = { clientX: event.clientX, clientY: event.clientY };
+    setHoveredBoundaryEdge(undefined);
+    setSidewalkPreview(undefined);
+    setIsPanning(true);
+  };
+
+  const handleCanvasWheel = (event: ReactWheelEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+
+    const rect = wrapRef.current?.getBoundingClientRect();
+    if (!rect) return;
+
+    const pointerX = event.clientX - rect.left;
+    const pointerY = event.clientY - rect.top;
+    const minimumScale = getFittedScale(crop.width, crop.height, viewport);
+    const zoomFactor = event.deltaY > 0 ? 1 / 1.08 : 1.08;
+
+    setCamera((current) => {
+      const nextScale = clampNumber(current.scale * zoomFactor, minimumScale, maximumZoomScale);
+      if (Math.abs(nextScale - current.scale) < 0.0001) return current;
+      if (Math.abs(nextScale - minimumScale) < 0.0001) {
+        return getCropFitCamera(viewport, crop, backgroundView);
+      }
+
+      const worldX = (pointerX - current.x) / current.scale;
+      const worldY = (pointerY - current.y) / current.scale;
+      return constrainCamera(
+        {
+          scale: nextScale,
+          x: pointerX - worldX * nextScale,
+          y: pointerY - worldY * nextScale,
+        },
+        viewport,
+        crop,
+        backgroundView,
+      );
+    });
+  };
+
   return (
     <div
       ref={wrapRef}
-      className="canvasWrap"
-      onWheel={(event) => {
-        event.preventDefault();
-        event.stopPropagation();
+      className={`canvasWrap ${isPanning ? "isPanning" : ""}`}
+      onMouseDownCapture={startMiddleMousePan}
+      onAuxClick={(event) => {
+        if (event.button === 1) event.preventDefault();
       }}
+      onWheel={handleCanvasWheel}
     >
       <button className="fitButton secondaryButton" type="button" onClick={fitToScreen}>
         Fit to Screen
       </button>
+      <section
+        className="siteBadge"
+        style={{
+          left: `${siteBadgeLeft}px`,
+          top: `${siteBadgeTop}px`,
+          width: `${siteBadgeWidth}px`,
+        }}
+        onWheel={(event) => event.stopPropagation()}
+      >
+        <p className="siteBadgeTitle">Site</p>
+        <label className="siteBadgeField">
+          <span>Length (m)</span>
+          <input
+            type="number"
+            min="1"
+            step="0.1"
+            value={site.length.toFixed(1)}
+            onChange={(event) => onSiteChange({ ...site, length: Number(event.target.value) || 1 })}
+          />
+        </label>
+        <label className="siteBadgeField">
+          <span>Width (m)</span>
+          <input
+            type="number"
+            min="1"
+            step="0.1"
+            value={site.width.toFixed(1)}
+            onChange={(event) => onSiteChange({ ...site, width: Number(event.target.value) || 1 })}
+          />
+        </label>
+      </section>
       <Stage
         width={viewport.width}
         height={viewport.height}
+        listening={!isPanning}
         onMouseDown={handleEmptyCanvasPointer}
         onTouchStart={handleEmptyCanvasPointer}
         onMouseMove={updateSidewalkPreview}
@@ -343,63 +534,90 @@ export function SiteCanvas({
         }}
       >
         <Layer x={pageOffset.x} y={pageOffset.y} listening={false}>
-          {shouldShowBackground && backgroundImage ? (
-            <Image
-              image={backgroundImage}
-              x={0}
-              y={0}
-              width={pageSize.width}
-              height={pageSize.height}
-              opacity={backgroundOpacity}
-              listening={false}
-            />
-          ) : null}
-          {contextZones.map((zone) => (
-            <ContextZoneShape
-              key={zone.id}
-              zone={zone}
+          <Group
+            clipX={(backgroundView === "full" ? crop.x : 0) * pageScale}
+            clipY={(backgroundView === "full" ? crop.y : 0) * pageScale}
+            clipWidth={crop.width * pageScale}
+            clipHeight={crop.height * pageScale}
+          >
+            {shouldShowBackground && backgroundImage ? (
+              <Image
+                image={backgroundImage}
+                x={0}
+                y={0}
+                width={pageSize.width}
+                height={pageSize.height}
+                opacity={backgroundOpacity}
+                listening={false}
+              />
+            ) : null}
+            {contextZones.map((zone) => (
+              <ContextZoneShape
+                key={zone.id}
+                zone={zone}
+                crop={crop}
+                backgroundView={backgroundView}
+                pageScale={pageScale}
+              />
+            ))}
+            {roads.map((road) => (
+              <SetupRoadShape
+                key={road.id}
+                road={road}
+                isSelected={road.id === selectedRoadId}
+                onSelect={() => onSelectRoadLabel(road.id)}
+                crop={crop}
+                backgroundView={backgroundView}
+                pageScale={pageScale}
+                pixelsPerMeter={renderSite.pixelsPerMeter}
+              />
+            ))}
+            {ancillaryBuildings.map((building, index) => (
+              <AncillaryBuildingShape
+                key={building.id}
+                building={building}
+                displayLabel={getIndexedBackgroundLabel(building.label, "Ancillary Building", index)}
+                isSelected={building.id === selectedAncillaryBuildingId}
+                onSelect={() => onSelectAncillaryBuildingLabel(building.id)}
+                crop={crop}
+                backgroundView={backgroundView}
+                pageScale={pageScale}
+              />
+            ))}
+            {existingBuildings.map((building, index) => (
+              <ExistingBuildingShape
+                key={building.id}
+                building={building}
+                displayLabel={getIndexedBackgroundLabel(building.label, "Existing Building", index)}
+                isSelected={building.id === selectedExistingBuildingId}
+                onSelect={() => onSelectExistingBuildingLabel(building.id)}
+                crop={crop}
+                backgroundView={backgroundView}
+                pageScale={pageScale}
+              />
+            ))}
+            {existingTrees.map((tree) => (
+              <ExistingTreeShape
+                key={tree.id}
+                tree={tree}
+                crop={crop}
+                backgroundView={backgroundView}
+                pageScale={pageScale}
+              />
+            ))}
+          </Group>
+        </Layer>
+        <Layer x={pageOffset.x} y={pageOffset.y}>
+          {projectSites.map((projectSite, index) => (
+            <ProjectSiteBoundaryShape
+              key={projectSite.id}
+              projectSite={projectSite}
+              isPrimary={index === 0}
+              isSelected={projectSite.id === selectedProjectSiteId}
               crop={crop}
               backgroundView={backgroundView}
               pageScale={pageScale}
-            />
-          ))}
-          {roads.map((road) => (
-            <SetupRoadShape
-              key={road.id}
-              road={road}
-              crop={crop}
-              backgroundView={backgroundView}
-              pageScale={pageScale}
-              pixelsPerMeter={renderSite.pixelsPerMeter}
-            />
-          ))}
-          {ancillaryBuildings.map((building, index) => (
-            <AncillaryBuildingShape
-              key={building.id}
-              building={building}
-              label={`Ancillary Building ${index + 1}`}
-              crop={crop}
-              backgroundView={backgroundView}
-              pageScale={pageScale}
-            />
-          ))}
-          {existingBuildings.map((building, index) => (
-            <ExistingBuildingShape
-              key={building.id}
-              building={building}
-              label={`Existing Building ${index + 1}`}
-              crop={crop}
-              backgroundView={backgroundView}
-              pageScale={pageScale}
-            />
-          ))}
-          {existingTrees.map((tree) => (
-            <ExistingTreeShape
-              key={tree.id}
-              tree={tree}
-              crop={crop}
-              backgroundView={backgroundView}
-              pageScale={pageScale}
+              onSelect={() => onSelectProjectSite(projectSite.id)}
             />
           ))}
         </Layer>
@@ -423,13 +641,6 @@ export function SiteCanvas({
               strokeWidth={3}
             />
           ) : null}
-          <Text
-            x={12}
-            y={12}
-            text={`${site.length.toFixed(1)}m x ${site.width.toFixed(1)}m`}
-            fill="#334155"
-            fontSize={16}
-          />
         </Layer>
         {isSidewalkToolActive ? (
           <Layer x={boundary.x} y={boundary.y}>
@@ -502,6 +713,7 @@ export function SiteCanvas({
               building={building}
               site={renderSite}
               renderScale={buildingScale}
+              dragBounds={analysisBounds}
               showDimensionAnnotations={showDistanceLines}
               isSelected={building.id === selectedBuildingId}
               onSelect={() => onSelectBuilding(building.id)}
@@ -565,15 +777,58 @@ export function SiteCanvas({
   );
 }
 
+function ProjectSiteBoundaryShape({
+  projectSite,
+  isPrimary,
+  isSelected,
+  crop,
+  backgroundView,
+  pageScale,
+  onSelect,
+}: {
+  projectSite: ProjectSite;
+  isPrimary: boolean;
+  isSelected: boolean;
+  crop: { x: number; y: number };
+  backgroundView: PdfBackgroundView;
+  pageScale: number;
+  onSelect: () => void;
+}) {
+  const boundaryPoints = getBackgroundShapePoints(
+    getProjectSiteBoundaryPoints(projectSite),
+    crop,
+    backgroundView,
+    pageScale,
+  );
+  const stroke = isSelected ? "#1d4ed8" : isPrimary ? "#2563eb" : "rgba(37, 99, 235, 0.82)";
+  const fill = isSelected ? "rgba(59,130,246,0.15)" : "rgba(59,130,246,0.07)";
+
+  return (
+    <Line
+      points={boundaryPoints}
+      closed
+      fill={fill}
+      stroke={stroke}
+      strokeWidth={isSelected ? 3.5 : 2.5}
+      onClick={onSelect}
+      onTap={onSelect}
+    />
+  );
+}
+
 function AncillaryBuildingShape({
   building,
-  label,
+  displayLabel,
+  isSelected,
+  onSelect,
   crop,
   backgroundView,
   pageScale,
 }: {
   building: AncillaryBuilding;
-  label: string;
+  displayLabel: string;
+  isSelected: boolean;
+  onSelect: () => void;
   crop: { x: number; y: number };
   backgroundView: PdfBackgroundView;
   pageScale: number;
@@ -605,11 +860,13 @@ function AncillaryBuildingShape({
         x={centerX - 80}
         y={centerY - 9}
         width={160}
-        text={label}
-        fill="#374151"
-        fontSize={13}
+        text={displayLabel}
+        fill={isSelected ? "#f97316" : "#374151"}
+        fontSize={building.labelFontSize ?? 13}
         fontStyle="bold"
         align="center"
+        onClick={onSelect}
+        onTap={onSelect}
       />
     </Group>
   );
@@ -617,37 +874,57 @@ function AncillaryBuildingShape({
 
 function ExistingBuildingShape({
   building,
-  label,
+  displayLabel,
+  isSelected,
+  onSelect,
   crop,
   backgroundView,
   pageScale,
 }: {
   building: ExistingBuilding;
-  label: string;
+  displayLabel: string;
+  isSelected: boolean;
+  onSelect: () => void;
   crop: { x: number; y: number };
   backgroundView: PdfBackgroundView;
   pageScale: number;
 }) {
   const points = getBackgroundShapePoints(building.points, crop, backgroundView, pageScale);
-  const center = getFlatPointsCenter(points);
+  const bounds = getFlatPointBounds(points);
+  const labelPadding = Math.max(8, Math.min(20, Math.min(bounds.width, bounds.height) * 0.08));
   return (
-    <Group listening={false}>
+    <Group
+      clipFunc={(context: Konva.Context) => {
+        context.beginPath();
+        context.moveTo(points[0], points[1]);
+        for (let index = 2; index < points.length; index += 2) {
+          context.lineTo(points[index], points[index + 1]);
+        }
+        context.closePath();
+      }}
+    >
       <Line
         points={points}
         closed
         fill="rgba(80,80,80,0.35)"
         stroke="rgba(50,50,50,1)"
         strokeWidth={2.5}
+        listening={false}
       />
       <Text
-        x={center.x - 80}
-        y={center.y - 9}
-        width={160}
-        text={label}
-        fill="#262626"
-        fontSize={13}
+        x={bounds.minX + labelPadding}
+        y={bounds.minY + labelPadding}
+        width={Math.max(1, bounds.width - labelPadding * 2)}
+        height={Math.max(1, bounds.height - labelPadding * 2)}
+        text={displayLabel}
+        fill={isSelected ? "#f97316" : "#262626"}
+        fontSize={building.labelFontSize ?? 13}
         fontStyle="bold"
         align="center"
+        verticalAlign="middle"
+        wrap="word"
+        onClick={onSelect}
+        onTap={onSelect}
       />
     </Group>
   );
@@ -741,14 +1018,35 @@ function getFlatPointsCenter(points: number[]) {
   return { x: x / count, y: y / count };
 }
 
+function getFlatPointBounds(points: number[]) {
+  const xs = points.filter((_, index) => index % 2 === 0);
+  const ys = points.filter((_, index) => index % 2 === 1);
+  const minX = Math.min(...xs);
+  const maxX = Math.max(...xs);
+  const minY = Math.min(...ys);
+  const maxY = Math.max(...ys);
+  return {
+    minX,
+    maxX,
+    minY,
+    maxY,
+    width: maxX - minX,
+    height: maxY - minY,
+  };
+}
+
 function SetupRoadShape({
   road,
+  isSelected,
+  onSelect,
   crop,
   backgroundView,
   pageScale,
   pixelsPerMeter,
 }: {
   road: SetupRoad;
+  isSelected: boolean;
+  onSelect: () => void;
   crop: { x: number; y: number };
   backgroundView: PdfBackgroundView;
   pageScale: number;
@@ -785,13 +1083,15 @@ function SetupRoadShape({
         width={180}
         height={20}
         text={`${getSetupRoadLabel(road.type)} (${formatSetupRoadWidth(road.width)}m)`}
-        fill="#374151"
-        fontSize={Math.max(9, Math.min(16, roadWidth * 0.45))}
+        fill={isSelected ? "#f97316" : "#374151"}
+        fontSize={road.labelFontSize ?? Math.max(9, Math.min(16, roadWidth * 0.45))}
         fontStyle="bold"
         align="center"
         verticalAlign="middle"
         wrap="none"
         ellipsis
+        onClick={onSelect}
+        onTap={onSelect}
       />
     </Group>
   );
@@ -827,6 +1127,16 @@ function getSetupRoadLabel(type: SetupRoad["type"]) {
   return "Pedestrian Pathway";
 }
 
+function getIndexedBackgroundLabel(
+  label: string | undefined,
+  fallbackBase: string,
+  index: number,
+) {
+  const normalized = label?.trim();
+  if (!normalized || normalized === fallbackBase) return `${fallbackBase} ${index + 1}`;
+  return normalized;
+}
+
 function formatSetupRoadWidth(width: number) {
   return Number.isInteger(width) ? String(width) : width.toFixed(1);
 }
@@ -853,10 +1163,9 @@ function EntranceShape({
   const x = entrance.x * scale.x;
   const y = entrance.y * scale.y;
   const arrowLength = 34;
-  const labelWidth = 150;
-  const labelHeight = 18;
-  const verticalLabelGap = 10;
-  const horizontalLabelGap = 5;
+  const labelFontSize = entrance.labelFontSize ?? 13;
+  const labelSize = measureEntranceLabel(entrance.label, labelFontSize);
+  const labelGap = getEntranceAnnotationGap(labelFontSize);
   const radians = (entrance.rotation * Math.PI) / 180;
   const tail = {
     x: -Math.sin(radians) * arrowLength,
@@ -871,10 +1180,8 @@ function EntranceShape({
   const labelPosition = getEntranceLabelCoordinates(
     entrance.labelPosition,
     arrowBounds,
-    labelWidth,
-    labelHeight,
-    verticalLabelGap,
-    horizontalLabelGap,
+    labelSize,
+    labelGap,
   );
 
   return (
@@ -905,56 +1212,21 @@ function EntranceShape({
       <Text
         x={labelPosition.x}
         y={labelPosition.y}
-        width={labelWidth}
-        height={labelHeight}
+        width={labelSize.width}
+        height={labelSize.height}
         text={entrance.label}
         fill="#b91c1c"
-        fontSize={13}
+        fontSize={labelFontSize}
         fontStyle="bold"
         align="center"
         verticalAlign="middle"
         rotation={0}
         wrap="none"
-        ellipsis
-        listening={false}
+        onClick={onSelect}
+        onTap={onSelect}
       />
     </Group>
   );
-}
-
-function getEntranceLabelCoordinates(
-  position: Entrance["labelPosition"],
-  arrowBounds: { minX: number; maxX: number; minY: number; maxY: number },
-  labelWidth: number,
-  labelHeight: number,
-  verticalGap: number,
-  horizontalGap: number,
-) {
-  const arrowCenterX = (arrowBounds.minX + arrowBounds.maxX) / 2;
-  const arrowCenterY = (arrowBounds.minY + arrowBounds.maxY) / 2;
-
-  if (position === "top") {
-    return {
-      x: arrowCenterX - labelWidth / 2,
-      y: arrowBounds.minY - verticalGap - labelHeight,
-    };
-  }
-  if (position === "left") {
-    return {
-      x: arrowBounds.minX - horizontalGap - labelWidth,
-      y: arrowCenterY - labelHeight / 2,
-    };
-  }
-  if (position === "right") {
-    return {
-      x: arrowBounds.maxX + horizontalGap,
-      y: arrowCenterY - labelHeight / 2,
-    };
-  }
-  return {
-    x: arrowCenterX - labelWidth / 2,
-    y: arrowBounds.maxY + verticalGap,
-  };
 }
 
 function ContextZoneShape({
@@ -1010,8 +1282,8 @@ function SidewalkShape({
       <Line
         points={points}
         closed
-        fill={isPreview ? "rgba(249, 115, 22, 0.22)" : "#e5e7eb"}
-        stroke={isSelected ? "#f97316" : "#9ca3af"}
+        fill={isPreview ? "rgba(255, 255, 255, 0.28)" : "rgba(255, 255, 255, 0.48)"}
+        stroke={isSelected ? "#f97316" : "rgba(148, 163, 184, 0.92)"}
         strokeWidth={isSelected ? 3 : 1.5}
         dash={isPreview ? [10, 6] : undefined}
       />
@@ -1021,11 +1293,12 @@ function SidewalkShape({
           y={center.y - 9}
           width={120}
           text={sidewalk.label}
-          fill="#4b5563"
-          fontSize={14}
+          fill={isSelected ? "#f97316" : "#4b5563"}
+          fontSize={sidewalk.labelFontSize ?? 14}
           fontStyle="bold"
           align="center"
-          listening={false}
+          onClick={onSelect}
+          onTap={onSelect}
         />
       ) : null}
     </Group>
@@ -1033,8 +1306,9 @@ function SidewalkShape({
 }
 
 function getBoundaryVertices(site: SiteDimensions, backgroundMeta?: PdfBackgroundMeta) {
-  const boundary = backgroundMeta?.siteBoundary;
-  if (backgroundMeta?.siteShape === "polygon" && boundary?.polygon?.length && boundary.width && boundary.height) {
+  const primaryProjectSite = getPrimaryProjectSite(backgroundMeta, site);
+  const boundary = primaryProjectSite?.boundary ?? backgroundMeta?.siteBoundary;
+  if ((primaryProjectSite?.shape ?? backgroundMeta?.siteShape) === "polygon" && boundary?.polygon?.length && boundary.width && boundary.height) {
     return boundary.polygon.map((point) => ({
       x: ((point.x - boundary.x) / boundary.width) * site.width,
       y: ((point.y - boundary.y) / boundary.height) * site.length,
@@ -1261,7 +1535,7 @@ function SiteLabelShape({
       y={label.y * scale.y}
       text={label.text}
       fill="#111827"
-      fontSize={18}
+      fontSize={label.fontSize ?? 18}
       fontStyle="bold"
       padding={4}
       stroke={isSelected ? "#f97316" : undefined}
@@ -1332,6 +1606,34 @@ function keepAnalysisNodeInside(
 function clampAnalysisCoordinate(value: number, min: number, max: number, padding: number) {
   const effectivePadding = Math.min(padding, (max - min) / 2);
   return Math.max(min + effectivePadding, Math.min(max - effectivePadding, value));
+}
+
+function clampNumber(value: number, min: number, max: number) {
+  return Math.max(min, Math.min(max, value));
+}
+
+function measureEntranceLabel(text: string, fontSize: number) {
+  const fallbackHeight = Math.ceil(fontSize * 1.15);
+  const content = text.trim() || " ";
+  if (!entranceLabelMeasureContext) {
+    return {
+      width: Math.max(1, Math.ceil(content.length * fontSize * 0.68)),
+      height: fallbackHeight,
+    };
+  }
+
+  entranceLabelMeasureContext.font = `700 ${fontSize}px Arial`;
+  const metrics = entranceLabelMeasureContext.measureText(content);
+  return {
+    width: Math.max(1, Math.ceil(metrics.width)),
+    height: Math.max(
+      1,
+      Math.ceil(
+        (metrics.actualBoundingBoxAscent || fontSize * 0.75) +
+        (metrics.actualBoundingBoxDescent || fontSize * 0.25),
+      ),
+    ),
+  };
 }
 
 function BoundaryDimensionGuides({
@@ -1565,8 +1867,9 @@ function rotatePoint(localX: number, localY: number, originX: number, originY: n
 }
 
 function getFittedScale(width: number, height: number, viewport: { width: number; height: number }) {
+  const reservedVerticalPadding = gridRowSize * (topGridPaddingRows + bottomGridPaddingRows);
   const fitWidth = (viewport.width * targetFitRatio) / width;
-  const fitHeight = (viewport.height * targetFitRatio) / height;
+  const fitHeight = (Math.max(1, viewport.height - reservedVerticalPadding) * targetFitRatio) / height;
   return Math.max(0.01, Math.min(fitWidth, fitHeight));
 }
 
@@ -1585,4 +1888,50 @@ function getTopFitOffset(viewportHeight: number, pageHeight: number) {
       viewportHeight - pageHeight - preferredBottomPadding,
     ),
   );
+}
+
+function getCropFitCamera(
+  viewport: { width: number; height: number },
+  crop: { x: number; y: number; width: number; height: number },
+  backgroundView: PdfBackgroundView,
+): CanvasCamera {
+  const scale = getFittedScale(crop.width, crop.height, viewport);
+  const cropWidth = crop.width * scale;
+  const cropHeight = crop.height * scale;
+  const cropX = Math.max(0, (viewport.width - cropWidth) / 2);
+  const cropY = getTopFitOffset(viewport.height, cropHeight);
+
+  return {
+    scale,
+    x: cropX - (backgroundView === "full" ? crop.x * scale : 0),
+    y: cropY - (backgroundView === "full" ? crop.y * scale : 0),
+  };
+}
+
+function constrainCamera(
+  camera: CanvasCamera,
+  viewport: { width: number; height: number },
+  crop: { x: number; y: number; width: number; height: number },
+  backgroundView: PdfBackgroundView,
+): CanvasCamera {
+  const cropWidth = crop.width * camera.scale;
+  const cropHeight = crop.height * camera.scale;
+  const sourceOffsetX = (backgroundView === "full" ? crop.x : 0) * camera.scale;
+  const sourceOffsetY = (backgroundView === "full" ? crop.y : 0) * camera.scale;
+  const fitX = Math.max(0, (viewport.width - cropWidth) / 2);
+  const fitY = getTopFitOffset(viewport.height, cropHeight);
+  const cropX =
+    cropWidth <= viewport.width
+      ? fitX
+      : clampNumber(camera.x + sourceOffsetX, viewport.width - cropWidth, 0);
+  const cropY =
+    cropHeight <= viewport.height
+      ? fitY
+      : clampNumber(camera.y + sourceOffsetY, viewport.height - cropHeight, 0);
+
+  return {
+    scale: camera.scale,
+    x: cropX - sourceOffsetX,
+    y: cropY - sourceOffsetY,
+  };
 }

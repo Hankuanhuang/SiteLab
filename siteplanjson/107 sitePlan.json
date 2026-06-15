@@ -1,0 +1,55 @@
+{
+  "version": 1,
+  "projectId": "3dabda9a-3d94-4efe-a65f-9361abf0ac07",
+  "projectName": "107 sitePlan",
+  "savedAt": "2026-06-15T16:32:26.376Z",
+  "site": {
+    "length": 113.77272459944973,
+    "width": 69.59639114708772,
+    "shape": "polygon",
+    "vertices": [
+      {
+        "x": 0,
+        "y": 5.829
+      },
+      {
+        "x": 59.66,
+        "y": 0
+      },
+      {
+        "x": 69.596,
+        "y": 104.601
+      },
+      {
+        "x": 66.262,
+        "y": 108.67
+      },
+      {
+        "x": 13.71,
+        "y": 113.773
+      },
+      {
+        "x": 9.899,
+        "y": 110.538
+      }
+    ],
+    "edgeLengths": [
+      60,
+      105.072,
+      5,
+      52.8,
+      4.6,
+      105.175
+    ]
+  },
+  "buildings": [],
+  "siteLabels": [],
+  "trees": [],
+  "sidewalks": [],
+  "contextZones": [],
+  "roads": [],
+  "ancillaryBuildings": [],
+  "existingBuildings": [],
+  "existingTrees": [],
+  "entrances": []
+}

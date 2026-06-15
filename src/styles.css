@@ -195,6 +195,46 @@ p {
   gap: 10px;
 }
 
+.toolbarMenu {
+  position: relative;
+}
+
+.toolbarMenuPopup {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  z-index: 10;
+  display: grid;
+  grid-template-columns: minmax(120px, auto) minmax(160px, auto);
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.98);
+  box-shadow: 0 18px 42px rgba(15, 23, 42, 0.18);
+}
+
+.toolbarMenuRoot,
+.toolbarMenuOptions {
+  display: grid;
+  gap: 8px;
+}
+
+.toolbarMenuPopup button,
+.createToolButton.active {
+  min-height: 38px;
+}
+
+.createToolButton.active {
+  background: #0f766e;
+  color: #ffffff;
+}
+
+.toolbarMenuRoot button.active {
+  background: #0f766e;
+  color: #ffffff;
+}
+
 .projectNameDisplay {
   display: flex;
   align-items: center;
@@ -537,12 +577,53 @@ p {
   margin: 0 auto;
 }
 
+.canvasWrap.isPanning,
+.canvasWrap.isPanning * {
+  cursor: grabbing !important;
+  user-select: none;
+}
+
 .fitButton {
   position: absolute;
   top: 14px;
   right: 14px;
   z-index: 2;
   box-shadow: 0 2px 8px rgba(15, 23, 42, 0.14);
+}
+
+.siteBadge {
+  position: absolute;
+  z-index: 2;
+  display: grid;
+  gap: 10px;
+  width: min(220px, calc(100% - 36px));
+  padding: 14px 16px;
+  border: 1px solid rgba(148, 163, 184, 0.45);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.9);
+  box-shadow: 0 14px 30px rgba(15, 23, 42, 0.14);
+  backdrop-filter: blur(8px);
+}
+
+.siteBadgeTitle {
+  margin: 0;
+  color: #0f172a;
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.siteBadgeField {
+  display: grid;
+  gap: 6px;
+  color: #475569;
+  font-size: 12px;
+}
+
+.siteBadgeField input {
+  min-height: 36px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.96);
 }
 
 .propertyPanel {
@@ -564,15 +645,26 @@ p {
   gap: 14px;
 }
 
-.propertyPanel .siteDimensionsSection {
-  order: -3;
-}
+.propertyPanel .backgroundSection { order: 0; }
+.propertyPanel .dimensionsSection { order: 1; }
+.propertyPanel .roadSection { order: 2; }
+.propertyPanel .ancillaryBuildingSection { order: 3; }
+.propertyPanel .existingBuildingSection { order: 4; }
+.propertyPanel .entranceSection { order: 5; }
+.propertyPanel .sidewalkSection { order: 6; }
+.propertyPanel .treeSection { order: 7; }
+.propertyPanel .siteLabelSection { order: 8; }
+.propertyPanel .buildingSection { order: 9; }
 
-.propertyPanel .buildingSection {
-  order: -2;
-}
-
-.propertyPanel .backgroundSection {
+.propertyPanel.activeBackgroundSection .backgroundSection,
+.propertyPanel.activeRoadSection .roadSection,
+.propertyPanel.activeAncillaryBuildingSection .ancillaryBuildingSection,
+.propertyPanel.activeExistingBuildingSection .existingBuildingSection,
+.propertyPanel.activeEntranceSection .entranceSection,
+.propertyPanel.activeSidewalkSection .sidewalkSection,
+.propertyPanel.activeTreeSection .treeSection,
+.propertyPanel.activeSiteLabelSection .siteLabelSection,
+.propertyPanel.activeBuildingSection .buildingSection {
   order: -1;
 }
 
@@ -590,6 +682,7 @@ p {
 }
 
 .propertyPanel input,
+.propertyPanel textarea,
 .propertyPanel select,
 .propertyPanel .propertyValue {
   font-size: 15px;
@@ -615,6 +708,7 @@ label {
 }
 
 input,
+textarea,
 select {
   min-height: 40px;
   width: 100%;
@@ -623,6 +717,13 @@ select {
   padding: 0 10px;
   background: #fff;
   color: var(--ink);
+}
+
+textarea {
+  min-height: 88px;
+  padding: 10px;
+  resize: vertical;
+  font-family: inherit;
 }
 
 input[type="file"] {
@@ -1137,6 +1238,24 @@ input[type="range"] {
   margin: 0;
 }
 
+.edgeLengthAutoValue {
+  display: block;
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.edgeLengthAutoBadge {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: #e0f2fe;
+  color: #075985;
+  font-size: 11px;
+  font-weight: 600;
+}
+
 .drawingInstructions {
   display: grid;
   gap: 7px;
@@ -1282,6 +1401,13 @@ input[type="range"] {
 
   .canvasWrap {
     min-height: 520px;
+  }
+
+  .siteBadge {
+    left: 14px !important;
+    top: auto !important;
+    bottom: 14px;
+    width: min(220px, calc(100% - 28px));
   }
 
   .propertyPanel {

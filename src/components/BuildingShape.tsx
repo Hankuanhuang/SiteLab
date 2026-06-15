@@ -1,11 +1,19 @@
 import { Group, Line, Rect, Text, Transformer } from "react-konva";
 import type Konva from "konva";
 import { useEffect, useRef } from "react";
+import { DEFAULT_BUILDING_LABEL_FONT_SIZE } from "../models/Building";
 import type { Building, SiteDimensions } from "../types/layout";
+import { getToiletStallCount, getToiletVisualLayout } from "../utils/toiletLayout";
 
 interface BuildingShapeProps {
   building: Building;
   site: SiteDimensions;
+  dragBounds?: {
+    minX: number;
+    maxX: number;
+    minY: number;
+    maxY: number;
+  };
   renderScale?: {
     x: number;
     y: number;
@@ -22,6 +30,7 @@ interface BuildingShapeProps {
 export function BuildingShape({
   building,
   site,
+  dragBounds,
   renderScale,
   showDimensionAnnotations,
   isSelected,
@@ -78,7 +87,7 @@ export function BuildingShape({
         }}
         onDragStart={onEditStart}
         onDragMove={(event) => {
-          const next = keepNodeInsideSite(event.target, site, ppmX, ppmY);
+          const next = keepNodeInsideBounds(event.target, site, dragBounds, ppmX, ppmY);
           onChange({ ...building, x: next.x, y: next.y });
         }}
         onDragEnd={onEditEnd}
@@ -112,7 +121,7 @@ export function BuildingShape({
           const width = building.type === "square" ? length : Math.max(1, (node.height() * scaleY) / ppmY);
           const rotation = normalizeRotation(node.rotation());
           node.rotation(rotation);
-          const next = keepNodeInsideSite(node, site, ppmX, ppmY);
+          const next = keepNodeInsideBounds(node, site, dragBounds, ppmX, ppmY);
 
           onChange({
             ...building,
@@ -125,13 +134,23 @@ export function BuildingShape({
           onEditEnd();
         }}
       />
-      <BuildingProgramLabel
-        building={building}
-        ppmX={ppmX}
-        ppmY={ppmY}
-        widthPx={buildingWidthPx}
-        heightPx={buildingHeightPx}
-      />
+      {building.type === "toilet" ? (
+        <ToiletInterior
+          building={building}
+          ppmX={ppmX}
+          ppmY={ppmY}
+          widthPx={buildingWidthPx}
+          heightPx={buildingHeightPx}
+        />
+      ) : (
+        <BuildingProgramLabel
+          building={building}
+          ppmX={ppmX}
+          ppmY={ppmY}
+          widthPx={buildingWidthPx}
+          heightPx={buildingHeightPx}
+        />
+      )}
       {isSelected ? (
         <>
           {showDimensionAnnotations ? <BuildingDimensions building={building} ppmX={ppmX} ppmY={ppmY} /> : null}
@@ -155,17 +174,25 @@ export function BuildingShape({
   );
 }
 
-function keepNodeInsideSite(node: Konva.Node, site: SiteDimensions, ppmX: number, ppmY: number) {
-  const siteWidthPx = site.width * ppmX;
-  const siteLengthPx = site.length * ppmY;
+function keepNodeInsideBounds(
+  node: Konva.Node,
+  site: SiteDimensions,
+  dragBounds: { minX: number; maxX: number; minY: number; maxY: number } | undefined,
+  ppmX: number,
+  ppmY: number,
+) {
+  const minX = (dragBounds?.minX ?? 0) * ppmX;
+  const minY = (dragBounds?.minY ?? 0) * ppmY;
+  const maxX = (dragBounds?.maxX ?? site.width) * ppmX;
+  const maxY = (dragBounds?.maxY ?? site.length) * ppmY;
   const box = node.getClientRect({ relativeTo: node.getLayer() ?? undefined });
   let correctionX = 0;
   let correctionY = 0;
 
-  if (box.x < 0) correctionX = -box.x;
-  if (box.y < 0) correctionY = -box.y;
-  if (box.x + box.width > siteWidthPx) correctionX = siteWidthPx - (box.x + box.width);
-  if (box.y + box.height > siteLengthPx) correctionY = siteLengthPx - (box.y + box.height);
+  if (box.x < minX) correctionX = minX - box.x;
+  if (box.y < minY) correctionY = minY - box.y;
+  if (box.x + box.width > maxX) correctionX = maxX - (box.x + box.width);
+  if (box.y + box.height > maxY) correctionY = maxY - (box.y + box.height);
 
   if (correctionX !== 0 || correctionY !== 0) {
     node.position({
@@ -285,12 +312,19 @@ function BuildingProgramLabel({
       widthLimitedNameSize / 1.35,
     ),
   );
-  const nameFontSize = Math.min(18, Math.max(programFontSize * 1.35, sizeBasis * 0.13), widthLimitedNameSize);
+  const maximumNameFontSize = Math.min(
+    18,
+    Math.max(programFontSize * 1.35, sizeBasis * 0.13),
+    widthLimitedNameSize,
+  );
+  const nameFontSize = Math.max(8, building.labelFontSize ?? DEFAULT_BUILDING_LABEL_FONT_SIZE);
   const nameHeight = nameFontSize * 1.25;
   const programLineHeight = programFontSize * 1.25;
   const listGap = building.programs.length ? clamp(programFontSize * 0.45, 3, 6) : 0;
   const stackHeight = nameHeight + listGap + building.programs.length * programLineHeight;
   const stackTop = padding + Math.max(0, (contentHeight - stackHeight) / 2);
+  const textColor = getContrastingTextColor(building.color);
+  const secondaryTextColor = textColor === "#111827" ? "rgba(17, 24, 39, 0.9)" : "rgba(255, 255, 255, 0.94)";
 
   return (
     <Group
@@ -309,7 +343,7 @@ function BuildingProgramLabel({
         width={contentWidth}
         height={nameHeight}
         text={building.label}
-        fill="#ffffff"
+        fill={textColor}
         fontSize={nameFontSize}
         fontStyle="bold"
         align="center"
@@ -325,7 +359,7 @@ function BuildingProgramLabel({
           width={contentWidth}
           height={programLineHeight}
           text={`${index + 1}. ${program.name} (${formatArea(program.area)}m\u00b2)`}
-          fill="rgba(255, 255, 255, 0.94)"
+          fill={secondaryTextColor}
           fontSize={programFontSize}
           align="center"
           verticalAlign="middle"
@@ -333,6 +367,99 @@ function BuildingProgramLabel({
           ellipsis
         />
       ))}
+    </Group>
+  );
+}
+
+function ToiletInterior({
+  building,
+  ppmX,
+  ppmY,
+  widthPx,
+  heightPx,
+}: {
+  building: Building;
+  ppmX: number;
+  ppmY: number;
+  widthPx: number;
+  heightPx: number;
+}) {
+  const textColor = getContrastingTextColor(building.color);
+  const secondaryTextColor = textColor === "#111827" ? "rgba(17, 24, 39, 0.84)" : "rgba(255, 255, 255, 0.92)";
+  const layout = getToiletVisualLayout(building.length, widthPx, heightPx);
+  const labelFontSize = Math.max(8, building.labelFontSize ?? DEFAULT_BUILDING_LABEL_FONT_SIZE);
+  const wcFontSize = Math.max(7, Math.min(14, Math.min(widthPx / Math.max(2, layout.stallCount * 2.4), heightPx * 0.14)));
+  const stallCount = getToiletStallCount(building.length);
+
+  return (
+    <Group
+      x={building.x * ppmX}
+      y={building.y * ppmY}
+      rotation={building.rotation}
+      clipX={0}
+      clipY={0}
+      clipWidth={widthPx}
+      clipHeight={heightPx}
+      listening={false}
+    >
+      <Line
+        points={[layout.partitionXs[0], layout.backWallY, layout.partitionXs[layout.partitionXs.length - 1], layout.backWallY]}
+        stroke={secondaryTextColor}
+        strokeWidth={2}
+      />
+      <Line
+        points={[layout.partitionXs[0], layout.frontPartitionY, layout.partitionXs[layout.partitionXs.length - 1], layout.frontPartitionY]}
+        stroke={secondaryTextColor}
+        strokeWidth={2}
+      />
+      {layout.partitionXs.map((x, index) => (
+        <Line
+          key={`${x}-${index}`}
+          points={[x, layout.backWallY, x, layout.frontPartitionY]}
+          stroke={secondaryTextColor}
+          strokeWidth={2}
+        />
+      ))}
+      {layout.stallCenters.map((centerX, index) => (
+        <Text
+          key={`${centerX}-${index}`}
+          x={centerX - 16}
+          y={layout.backWallY + (layout.frontPartitionY - layout.backWallY) * 0.32}
+          width={32}
+          height={18}
+          text="WC"
+          fill={textColor}
+          fontSize={wcFontSize}
+          fontStyle="bold"
+          align="center"
+          verticalAlign="middle"
+        />
+      ))}
+      <Text
+        x={6}
+        y={Math.max(layout.labelZoneY - 16, layout.frontPartitionY + 2)}
+        width={Math.max(1, widthPx - 12)}
+        height={14}
+        text={`${stallCount} WC`}
+        fill={secondaryTextColor}
+        fontSize={Math.max(8, Math.min(12, wcFontSize))}
+        align="center"
+        verticalAlign="middle"
+      />
+      <Text
+        x={6}
+        y={layout.labelZoneY}
+        width={Math.max(1, widthPx - 12)}
+        height={layout.labelZoneHeight}
+        text={building.label}
+        fill={textColor}
+        fontSize={labelFontSize}
+        fontStyle="bold"
+        align="center"
+        verticalAlign="middle"
+        wrap="none"
+        ellipsis
+      />
     </Group>
   );
 }
@@ -347,4 +474,11 @@ function formatArea(value: number) {
 
 function clamp(value: number, min: number, max: number) {
   return Math.max(min, Math.min(max, value));
+}
+
+function getContrastingTextColor(color: string) {
+  const red = Number.parseInt(color.slice(1, 3), 16);
+  const green = Number.parseInt(color.slice(3, 5), 16);
+  const blue = Number.parseInt(color.slice(5, 7), 16);
+  return red * 0.299 + green * 0.587 + blue * 0.114 > 155 ? "#111827" : "#ffffff";
 }

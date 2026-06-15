@@ -3,7 +3,7 @@ import { ConceptPlanGallery } from "../components/ConceptPlanGallery";
 import { PropertyPanel } from "../components/PropertyPanel";
 import { SiteCanvas } from "../components/SiteCanvas";
 import { Toolbar } from "../components/Toolbar";
-import { createBridge, createRectangle, createSquare, createToilet } from "../models/Building";
+import { createBridge, createCore, createRectangle, createToilet } from "../models/Building";
 import { defaultSiteData, siteDataToDimensions } from "../models/Site";
 import { exportConceptSitePlan } from "../services/conceptSitePlan";
 import { renderConceptPlanWithAi } from "../services/aiConceptRender";
@@ -15,22 +15,29 @@ import {
   getNextExportNumber,
   readActiveProject,
   readConceptPlanExports,
+  renameProjectReferences,
   saveActiveProject,
   updateConceptPlanExport,
 } from "../services/conceptPlanGalleryStorage";
 import { buildLayoutJson, downloadLayoutJson, parseLayoutJson } from "../services/layoutStorage";
+import { normalizeProjectName } from "../services/projectName";
+import { cloneProjectSite, getPrimaryProjectSite, getProjectSites } from "../services/projectSites";
 import type {
+  AncillaryBuilding,
   Building,
   ConceptPlanExport,
   ConceptPlanRenderedVersion,
   Entrance,
   EntranceLabel,
+  ExistingBuilding,
+  ProjectSite,
   PdfBackgroundMeta,
   PdfBackgroundView,
   SiteData,
   SiteDimensions,
   SiteLabel,
   Sidewalk,
+  SetupRoad,
   Tree,
 } from "../types/layout";
 
@@ -48,6 +55,10 @@ interface EditorSnapshot {
 }
 
 type ClipboardItem = { type: "building"; value: Building } | { type: "tree"; value: Tree };
+type BackgroundLabelSelection =
+  | { kind: "road"; id: string }
+  | { kind: "ancillaryBuilding"; id: string }
+  | { kind: "existingBuilding"; id: string };
 
 const historyLimit = 100;
 const pasteOffset = 3;
@@ -67,6 +78,8 @@ export function SiteEditor() {
   const [selectedTreeId, setSelectedTreeId] = useState<string>();
   const [selectedSidewalkId, setSelectedSidewalkId] = useState<string>();
   const [selectedEntranceId, setSelectedEntranceId] = useState<string>();
+  const [selectedProjectSiteId, setSelectedProjectSiteId] = useState<string>();
+  const [selectedBackgroundLabel, setSelectedBackgroundLabel] = useState<BackgroundLabelSelection>();
   const [isTreeToolActive, setIsTreeToolActive] = useState(false);
   const [isSidewalkToolActive, setIsSidewalkToolActive] = useState(false);
   const [entrancePlacementLabel, setEntrancePlacementLabel] = useState<EntranceLabel>();
@@ -75,7 +88,7 @@ export function SiteEditor() {
   const [projectId, setProjectId] = useState(initialProject.id);
   const [projectName, setProjectName] = useState(initialProject.name);
   const [projectNameDraft, setProjectNameDraft] = useState(initialProject.name);
-  const [projectDialogMode, setProjectDialogMode] = useState<"save" | "rename">();
+  const [isProjectDialogOpen, setIsProjectDialogOpen] = useState(false);
   const [conceptPlanExports, setConceptPlanExports] = useState<ConceptPlanExport[]>(() =>
     readConceptPlanExports(initialProject.id),
   );
@@ -124,6 +137,19 @@ export function SiteEditor() {
   const selectedTree = trees.find((tree) => tree.id === selectedTreeId);
   const selectedSidewalk = sidewalks.find((sidewalk) => sidewalk.id === selectedSidewalkId);
   const selectedEntrance = entrances.find((entrance) => entrance.id === selectedEntranceId);
+  const selectedRoad =
+    selectedBackgroundLabel?.kind === "road"
+      ? backgroundMeta?.roads?.find((road) => road.id === selectedBackgroundLabel.id)
+      : undefined;
+  const selectedAncillaryBuilding =
+    selectedBackgroundLabel?.kind === "ancillaryBuilding"
+      ? backgroundMeta?.ancillaryBuildings?.find((building) => building.id === selectedBackgroundLabel.id)
+      : undefined;
+  const selectedExistingBuilding =
+    selectedBackgroundLabel?.kind === "existingBuilding"
+      ? backgroundMeta?.existingBuildings?.find((building) => building.id === selectedBackgroundLabel.id)
+      : undefined;
+  const selectedProjectSite = getProjectSites(backgroundMeta, site).find((projectSite) => projectSite.id === selectedProjectSiteId);
   const analysisBounds = getEditorAnalysisBounds(backgroundMeta, site);
   const createSnapshot = (): EditorSnapshot => ({
     buildings: cloneBuildings(buildings),
@@ -137,6 +163,26 @@ export function SiteEditor() {
     selectedSidewalkId,
     selectedEntranceId,
   });
+
+  const clearBackgroundLabelSelection = () => setSelectedBackgroundLabel(undefined);
+
+  const updateProjectSite = (projectSite: ProjectSite) => {
+    setBackgroundMeta((current) => {
+      const base = current ?? createDefaultBackgroundMeta(site);
+      const sites = getProjectSites(base, site).map((item) =>
+        item.id === projectSite.id ? cloneProjectSite(projectSite) : cloneProjectSite(item),
+      );
+      const primarySite = sites[0];
+      if (!primarySite) return base;
+
+      return {
+        ...base,
+        sites,
+        siteShape: primarySite.shape,
+        siteBoundary: cloneProjectSite(primarySite).boundary,
+      };
+    });
+  };
 
   const pushHistory = (snapshot: EditorSnapshot) => {
     setHistory((current) => ({
@@ -408,21 +454,7 @@ export function SiteEditor() {
     setSelectedTreeId(undefined);
     setSelectedSidewalkId(undefined);
     setSelectedEntranceId(undefined);
-  };
-
-  const addSquare = () => {
-    setIsTreeToolActive(false);
-    setIsSidewalkToolActive(false);
-    setEntrancePlacementLabel(undefined);
-    const size = Number(window.prompt("Size", "10")) || 10;
-    const building = createSquare(size);
-    recordCurrent();
-    setBuildings((current) => [...current, building]);
-    setSelectedBuildingId(building.id);
-    setSelectedSiteLabelId(undefined);
-    setSelectedTreeId(undefined);
-    setSelectedSidewalkId(undefined);
-    setSelectedEntranceId(undefined);
+    clearBackgroundLabelSelection();
   };
 
   const addBridge = () => {
@@ -437,6 +469,7 @@ export function SiteEditor() {
     setSelectedTreeId(undefined);
     setSelectedSidewalkId(undefined);
     setSelectedEntranceId(undefined);
+    clearBackgroundLabelSelection();
   };
 
   const addToilet = () => {
@@ -451,6 +484,22 @@ export function SiteEditor() {
     setSelectedTreeId(undefined);
     setSelectedSidewalkId(undefined);
     setSelectedEntranceId(undefined);
+    clearBackgroundLabelSelection();
+  };
+
+  const addCore = (coreId: string) => {
+    setIsTreeToolActive(false);
+    setIsSidewalkToolActive(false);
+    setEntrancePlacementLabel(undefined);
+    const building = createCore(coreId);
+    recordCurrent();
+    setBuildings((current) => [...current, building]);
+    setSelectedBuildingId(building.id);
+    setSelectedSiteLabelId(undefined);
+    setSelectedTreeId(undefined);
+    setSelectedSidewalkId(undefined);
+    setSelectedEntranceId(undefined);
+    clearBackgroundLabelSelection();
   };
 
   const addSiteLabel = () => {
@@ -464,6 +513,7 @@ export function SiteEditor() {
       id: crypto.randomUUID(),
       type: "siteLabel",
       text: text || "Main Square",
+      fontSize: 18,
       x: site.width / 2,
       y: site.length / 2,
     };
@@ -475,6 +525,7 @@ export function SiteEditor() {
     setSelectedTreeId(undefined);
     setSelectedSidewalkId(undefined);
     setSelectedEntranceId(undefined);
+    clearBackgroundLabelSelection();
   };
 
   const placeTree = (x: number, y: number) => {
@@ -493,6 +544,7 @@ export function SiteEditor() {
     setSelectedSiteLabelId(undefined);
     setSelectedSidewalkId(undefined);
     setSelectedEntranceId(undefined);
+    clearBackgroundLabelSelection();
   };
 
   const openTreeDiameterDialog = (tree: Tree) => {
@@ -545,6 +597,7 @@ export function SiteEditor() {
       ...geometry,
       width,
       label: "Sidewalk",
+      labelFontSize: 14,
     };
 
     recordCurrent();
@@ -555,6 +608,7 @@ export function SiteEditor() {
     setSelectedTreeId(undefined);
     setSelectedEntranceId(undefined);
     setIsSidewalkToolActive(false);
+    clearBackgroundLabelSelection();
     setLayoutError("");
   };
 
@@ -583,6 +637,7 @@ export function SiteEditor() {
     setSelectedTreeId(undefined);
     setSelectedSidewalkId(undefined);
     setSelectedEntranceId(undefined);
+    clearBackgroundLabelSelection();
     setLayoutError("");
   };
 
@@ -593,6 +648,7 @@ export function SiteEditor() {
       id: crypto.randomUUID(),
       type: "entrance",
       label: entrancePlacementLabel,
+      labelFontSize: 13,
       buildingId: building.id,
       x: placement.x,
       y: placement.y,
@@ -608,6 +664,7 @@ export function SiteEditor() {
     setSelectedTreeId(undefined);
     setSelectedSidewalkId(undefined);
     setEntrancePlacementLabel(undefined);
+    clearBackgroundLabelSelection();
   };
 
   const loadLayout = async (file: File) => {
@@ -632,21 +689,34 @@ export function SiteEditor() {
       setProjectId(parsed.projectId ?? getLegacyProjectId(parsed.projectName));
       setBackgroundMeta((current) => {
         const base = current ?? createDefaultBackgroundMeta(parsed.site);
+        const primaryBoundary = base.siteBoundary;
+        const parsedSites = parsed.sites.length
+          ? parsed.sites.map((projectSite) => cloneProjectSite(projectSite))
+          : [{
+              id: "site-a",
+              name: "Site A",
+              shape: parsed.siteShape,
+              length: parsed.site.length,
+              width: parsed.site.width,
+              boundary: {
+                ...primaryBoundary,
+                ...(parsed.siteShape === "polygon"
+                  ? {
+                      polygon: getBackgroundPolygonVertices(parsed.siteVertices, primaryBoundary, parsed.site),
+                      edgeLengths: parsed.edgeLengths,
+                    }
+                  : {
+                      polygon: undefined,
+                      edgeLengths: undefined,
+                    }),
+              },
+            }];
+        const primarySite = parsedSites[0];
         return {
           ...base,
-          siteShape: parsed.siteShape,
-          siteBoundary: {
-            ...base.siteBoundary,
-            ...(parsed.siteShape === "polygon"
-              ? {
-                  polygon: getBackgroundPolygonVertices(parsed.siteVertices, base.siteBoundary, parsed.site),
-                  edgeLengths: parsed.edgeLengths,
-                }
-              : {
-                  polygon: undefined,
-                  edgeLengths: undefined,
-                }),
-          },
+          sites: parsedSites,
+          siteShape: primarySite.shape,
+          siteBoundary: cloneProjectSite(primarySite).boundary,
           contextZones: parsed.contextZones,
           roads: parsed.roads,
           ancillaryBuildings: parsed.ancillaryBuildings,
@@ -659,6 +729,8 @@ export function SiteEditor() {
       setSelectedTreeId(undefined);
       setSelectedSidewalkId(undefined);
       setSelectedEntranceId(undefined);
+      setSelectedProjectSiteId(undefined);
+      clearBackgroundLabelSelection();
       setClipboardItem(undefined);
       setIsTreeToolActive(false);
       setIsSidewalkToolActive(false);
@@ -671,18 +743,28 @@ export function SiteEditor() {
     }
   };
 
-  const openProjectDialog = (mode: "save" | "rename") => {
+  const openProjectDialog = () => {
     setProjectNameDraft(projectName);
-    setProjectDialogMode(mode);
+    setIsProjectDialogOpen(true);
   };
 
   const confirmProjectDialog = () => {
-    const nextProjectName = projectNameDraft.trim() || "Untitled Layout";
+    const previousProjectName = projectName;
+    const nextProjectName = normalizeProjectName(projectNameDraft);
+    saveActiveProject(projectId, nextProjectName);
     setProjectName(nextProjectName);
     setProjectNameDraft(nextProjectName);
-    setProjectDialogMode(undefined);
+    setIsProjectDialogOpen(false);
 
-    if (projectDialogMode === "save") {
+    if (nextProjectName !== previousProjectName) {
+      renameProjectReferences(projectId, previousProjectName, nextProjectName);
+      const nextExports = readConceptPlanExports(projectId);
+      setConceptPlanExports(nextExports);
+      setPreviewedConceptPlan((current) =>
+        current ? nextExports.find((item) => item.id === current.id) : undefined,
+      );
+    }
+
       downloadLayoutJson(
         buildLayoutJson(
           site,
@@ -690,21 +772,21 @@ export function SiteEditor() {
           siteLabels,
           trees,
           sidewalks,
+          getProjectSites(backgroundMeta, site),
           backgroundMeta?.contextZones,
           backgroundMeta?.roads,
           backgroundMeta?.ancillaryBuildings,
           backgroundMeta?.existingBuildings,
-          backgroundMeta?.existingTrees,
-          entrances,
-          nextProjectName,
-          new Date().toISOString(),
-          backgroundMeta?.siteShape ?? "rectangle",
+        backgroundMeta?.existingTrees,
+        entrances,
+        nextProjectName,
+        new Date().toISOString(),
+        backgroundMeta?.siteShape ?? "rectangle",
           getLayoutSiteVertices(backgroundMeta, site),
           backgroundMeta?.siteBoundary.edgeLengths ?? [],
           projectId,
         ),
       );
-    }
   };
 
   const exportConceptPlan = async () => {
@@ -797,14 +879,11 @@ export function SiteEditor() {
             <div className="projectNameDisplay">
               <span>Current Project:</span>
               <strong>{projectName}</strong>
-              <button className="projectRenameButton secondaryButton" type="button" onClick={() => openProjectDialog("rename")}>
-                Rename
-              </button>
             </div>
           </div>
           <Toolbar
             onAddRectangle={addRectangle}
-            onAddSquare={addSquare}
+            onAddCore={addCore}
             onAddSiteLabel={addSiteLabel}
             onAddBridge={addBridge}
             onAddToilet={addToilet}
@@ -826,7 +905,7 @@ export function SiteEditor() {
             onToggleDistanceLines={() => setShowDistanceLines((current) => !current)}
             onToggleSidebar={() => setIsSidebarCollapsed((current) => !current)}
             isSidebarCollapsed={isSidebarCollapsed}
-            onSaveLayout={() => openProjectDialog("save")}
+            onSaveLayout={openProjectDialog}
             onExportConceptSitePlan={exportConceptPlan}
             onOpenConceptPlanGallery={() => setIsConceptGalleryOpen(true)}
             conceptPlanExportCount={conceptPlanExports.length}
@@ -849,6 +928,14 @@ export function SiteEditor() {
           selectedTreeId={selectedTreeId}
           selectedSidewalkId={selectedSidewalkId}
           selectedEntranceId={selectedEntranceId}
+          selectedProjectSiteId={selectedProjectSiteId}
+          selectedRoadId={selectedBackgroundLabel?.kind === "road" ? selectedBackgroundLabel.id : undefined}
+          selectedAncillaryBuildingId={
+            selectedBackgroundLabel?.kind === "ancillaryBuilding" ? selectedBackgroundLabel.id : undefined
+          }
+          selectedExistingBuildingId={
+            selectedBackgroundLabel?.kind === "existingBuilding" ? selectedBackgroundLabel.id : undefined
+          }
           isTreeToolActive={isTreeToolActive}
           isSidewalkToolActive={isSidewalkToolActive}
           isEntranceToolActive={Boolean(entrancePlacementLabel)}
@@ -858,55 +945,114 @@ export function SiteEditor() {
           backgroundOpacity={backgroundOpacity}
           showBackground={showBackground}
           showDistanceLines={showDistanceLines}
+          onSiteChange={setSite}
           onSelectBuilding={(id) => {
             setSelectedBuildingId(id);
             if (id) {
+              setSelectedProjectSiteId(undefined);
               setSelectedSiteLabelId(undefined);
               setSelectedTreeId(undefined);
               setSelectedSidewalkId(undefined);
               setSelectedEntranceId(undefined);
               setEntrancePlacementLabel(undefined);
+              clearBackgroundLabelSelection();
             }
           }}
           onSelectSiteLabel={(id) => {
             setSelectedSiteLabelId(id);
             if (id) {
+              setSelectedProjectSiteId(undefined);
               setSelectedBuildingId(undefined);
               setSelectedTreeId(undefined);
               setSelectedSidewalkId(undefined);
               setSelectedEntranceId(undefined);
               setEntrancePlacementLabel(undefined);
+              clearBackgroundLabelSelection();
             }
           }}
           onSelectTree={(id) => {
             setSelectedTreeId(id);
             if (id) {
+              setSelectedProjectSiteId(undefined);
               setSelectedBuildingId(undefined);
               setSelectedSiteLabelId(undefined);
               setSelectedSidewalkId(undefined);
               setSelectedEntranceId(undefined);
               setEntrancePlacementLabel(undefined);
+              clearBackgroundLabelSelection();
             }
           }}
           onEditTreeDiameter={openTreeDiameterDialog}
           onSelectSidewalk={(id) => {
             setSelectedSidewalkId(id);
             if (id) {
+              setSelectedProjectSiteId(undefined);
               setSelectedBuildingId(undefined);
               setSelectedSiteLabelId(undefined);
               setSelectedTreeId(undefined);
               setSelectedEntranceId(undefined);
               setEntrancePlacementLabel(undefined);
+              clearBackgroundLabelSelection();
             }
           }}
           onSelectEntrance={(id) => {
             setSelectedEntranceId(id);
             if (id) {
+              setSelectedProjectSiteId(undefined);
               setSelectedBuildingId(undefined);
               setSelectedSiteLabelId(undefined);
               setSelectedTreeId(undefined);
               setSelectedSidewalkId(undefined);
               setEntrancePlacementLabel(undefined);
+              clearBackgroundLabelSelection();
+            }
+          }}
+          onSelectRoadLabel={(id) => {
+            setSelectedBackgroundLabel(id ? { kind: "road", id } : undefined);
+            if (id) {
+              setSelectedProjectSiteId(undefined);
+              setSelectedBuildingId(undefined);
+              setSelectedSiteLabelId(undefined);
+              setSelectedTreeId(undefined);
+              setSelectedSidewalkId(undefined);
+              setSelectedEntranceId(undefined);
+              setEntrancePlacementLabel(undefined);
+            }
+          }}
+          onSelectAncillaryBuildingLabel={(id) => {
+            setSelectedBackgroundLabel(id ? { kind: "ancillaryBuilding", id } : undefined);
+            if (id) {
+              setSelectedProjectSiteId(undefined);
+              setSelectedBuildingId(undefined);
+              setSelectedSiteLabelId(undefined);
+              setSelectedTreeId(undefined);
+              setSelectedSidewalkId(undefined);
+              setSelectedEntranceId(undefined);
+              setEntrancePlacementLabel(undefined);
+            }
+          }}
+          onSelectExistingBuildingLabel={(id) => {
+            setSelectedBackgroundLabel(id ? { kind: "existingBuilding", id } : undefined);
+            if (id) {
+              setSelectedProjectSiteId(undefined);
+              setSelectedBuildingId(undefined);
+              setSelectedSiteLabelId(undefined);
+              setSelectedTreeId(undefined);
+              setSelectedSidewalkId(undefined);
+              setSelectedEntranceId(undefined);
+              setEntrancePlacementLabel(undefined);
+            }
+          }}
+          onSelectProjectSite={(id) => {
+            setSelectedProjectSiteId(id);
+            if (id) {
+              setSelectedBuildingId(undefined);
+              setSelectedSiteLabelId(undefined);
+              setSelectedTreeId(undefined);
+              setSelectedSidewalkId(undefined);
+              setSelectedEntranceId(undefined);
+              setEntrancePlacementLabel(undefined);
+              clearBackgroundLabelSelection();
             }
           }}
           onPlaceEntrance={placeEntrance}
@@ -930,28 +1076,32 @@ export function SiteEditor() {
         />
         {isSidebarCollapsed ? null : (
           <PropertyPanel
-            site={site}
             selectedBuilding={selectedBuilding}
+            selectedProjectSite={selectedProjectSite}
             selectedSiteLabel={selectedSiteLabel}
             selectedTree={selectedTree}
             selectedSidewalk={selectedSidewalk}
             selectedEntrance={selectedEntrance}
+            selectedRoad={selectedRoad}
+            selectedAncillaryBuilding={selectedAncillaryBuilding}
+            selectedExistingBuilding={selectedExistingBuilding}
+            isTreeToolActive={isTreeToolActive}
+            isSidewalkToolActive={isSidewalkToolActive}
+            isEntranceToolActive={Boolean(entrancePlacementLabel)}
           hasBackground={Boolean(backgroundImageSrc)}
           hasFullPageBackground={Boolean(fullPageImageSrc)}
             backgroundView={backgroundView}
             backgroundOpacity={backgroundOpacity}
             showBackground={showBackground}
             showDistanceLines={showDistanceLines}
-            onSiteChange={setSite}
-          onBackgroundImageChange={(src) => {
-            setBackgroundImageSrc(src);
-            setBackgroundMeta(undefined);
-            setBackgroundView("crop");
-          }}
             onBackgroundViewChange={setBackgroundView}
             onBackgroundOpacityChange={setBackgroundOpacity}
             onShowBackgroundChange={setShowBackground}
             onShowDistanceLinesChange={setShowDistanceLines}
+            onProjectSiteChange={(projectSite) => {
+              recordCurrent();
+              updateProjectSite(projectSite);
+            }}
             onBuildingChange={upsertBuilding}
             onDeleteBuilding={deleteSelectedBuilding}
             onSiteLabelChange={(label) => {
@@ -989,6 +1139,38 @@ export function SiteEditor() {
               setEntrances((current) => current.map((item) => (item.id === entrance.id ? nextEntrance : item)));
             }}
             onDeleteEntrance={deleteSelectedEntrance}
+            onRoadChange={(road) => {
+              setBackgroundMeta((current) =>
+                current
+                  ? {
+                      ...current,
+                      roads: current.roads?.map((item) => (item.id === road.id ? road : item)) ?? [],
+                    }
+                  : current,
+              );
+            }}
+            onAncillaryBuildingChange={(building) => {
+              setBackgroundMeta((current) =>
+                current
+                  ? {
+                      ...current,
+                      ancillaryBuildings:
+                        current.ancillaryBuildings?.map((item) => (item.id === building.id ? building : item)) ?? [],
+                    }
+                  : current,
+              );
+            }}
+            onExistingBuildingChange={(building) => {
+              setBackgroundMeta((current) =>
+                current
+                  ? {
+                      ...current,
+                      existingBuildings:
+                        current.existingBuildings?.map((item) => (item.id === building.id ? building : item)) ?? [],
+                    }
+                  : current,
+              );
+            }}
           />
         )}
       </section>
@@ -1044,8 +1226,8 @@ export function SiteEditor() {
           </form>
         </div>
       ) : null}
-      {projectDialogMode ? (
-        <div className="modalBackdrop" role="presentation" onMouseDown={() => setProjectDialogMode(undefined)}>
+      {isProjectDialogOpen ? (
+        <div className="modalBackdrop" role="presentation" onMouseDown={() => setIsProjectDialogOpen(false)}>
           <form
             className="saveLayoutDialog"
             role="dialog"
@@ -1057,9 +1239,7 @@ export function SiteEditor() {
               confirmProjectDialog();
             }}
           >
-            <h2 id="save-layout-title">
-              {projectDialogMode === "save" ? "Save Layout Name" : "Rename Project"}
-            </h2>
+            <h2 id="save-layout-title">Save Layout</h2>
             <label>
               <span>Project Name</span>
               <input
@@ -1071,7 +1251,7 @@ export function SiteEditor() {
             </label>
             <div className="dialogActions">
               <button type="submit">Save</button>
-              <button className="secondaryButton" type="button" onClick={() => setProjectDialogMode(undefined)}>
+              <button className="secondaryButton" type="button" onClick={() => setIsProjectDialogOpen(false)}>
                 Cancel
               </button>
             </div>
@@ -1202,10 +1382,20 @@ function readSiteData(): SiteData {
 }
 
 function createDefaultBackgroundMeta(site: SiteDimensions): PdfBackgroundMeta {
+  const primarySite = {
+    id: "site-a",
+    name: "Site A",
+    shape: "rectangle" as const,
+    length: site.length,
+    width: site.width,
+    boundary: { x: 0, y: 0, width: site.width, height: site.length },
+  };
   return {
     page: { width: site.width, height: site.length },
     crop: { x: 0, y: 0, width: site.width, height: site.length },
-    siteBoundary: { x: 0, y: 0, width: site.width, height: site.length },
+    siteBoundary: primarySite.boundary,
+    siteShape: primarySite.shape,
+    sites: [primarySite],
     contextZones: [],
     roads: [],
     ancillaryBuildings: [],
@@ -1216,7 +1406,7 @@ function createDefaultBackgroundMeta(site: SiteDimensions): PdfBackgroundMeta {
 
 function getEditorAnalysisBounds(backgroundMeta: PdfBackgroundMeta | undefined, site: SiteDimensions) {
   const crop = backgroundMeta?.crop;
-  const boundary = backgroundMeta?.siteBoundary;
+  const boundary = getPrimaryProjectSite(backgroundMeta, site)?.boundary;
   if (!crop || !boundary || boundary.width <= 0 || boundary.height <= 0) {
     return { minX: 0, maxX: site.width, minY: 0, maxY: site.length };
   }
@@ -1230,7 +1420,7 @@ function getEditorAnalysisBounds(backgroundMeta: PdfBackgroundMeta | undefined, 
 }
 
 function getLayoutSiteVertices(backgroundMeta: PdfBackgroundMeta | undefined, site: SiteDimensions) {
-  const boundary = backgroundMeta?.siteBoundary;
+  const boundary = getPrimaryProjectSite(backgroundMeta, site)?.boundary;
   if (!boundary?.polygon?.length || !boundary.width || !boundary.height) return [];
 
   return boundary.polygon.map((point) => ({

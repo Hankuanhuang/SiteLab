@@ -1,0 +1,45 @@
+{
+  "version": 1,
+  "projectId": "3dabda9a-3d94-4efe-a65f-9361abf0ac07",
+  "projectName": "112 sitePlan",
+  "savedAt": "2026-06-15T16:46:04.041Z",
+  "site": {
+    "length": 162.1861431635722,
+    "width": 196.8214482671943,
+    "shape": "polygon",
+    "vertices": [
+      {
+        "x": 51.014,
+        "y": 12.867
+      },
+      {
+        "x": 196.821,
+        "y": 0
+      },
+      {
+        "x": 167.034,
+        "y": 162.186
+      },
+      {
+        "x": 0,
+        "y": 126.631
+      }
+    ],
+    "edgeLengths": [
+      146,
+      164,
+      171,
+      126
+    ]
+  },
+  "buildings": [],
+  "siteLabels": [],
+  "trees": [],
+  "sidewalks": [],
+  "contextZones": [],
+  "roads": [],
+  "ancillaryBuildings": [],
+  "existingBuildings": [],
+  "existingTrees": [],
+  "entrances": []
+}
