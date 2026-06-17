@@ -13,6 +13,7 @@ import type {
   Tree,
 } from "../types/layout";
 import { DEFAULT_BUILDING_LABEL_FONT_SIZE, isCoreBuilding } from "../models/Building";
+import { isBuildingOrientationSnappedElement, snapCoreRotation } from "../utils/coreRotation";
 import { getToiletStallCount } from "../utils/toiletLayout";
 
 const buildingColors: Array<{ name: string; value: BuildingColor }> = [
@@ -25,6 +26,7 @@ const buildingColors: Array<{ name: string; value: BuildingColor }> = [
   { name: "Blue", value: "#2563eb" },
   { name: "Cyan", value: "#06b6d4" },
   { name: "Purple", value: "#9333ea" },
+  { name: "Bridge Brown", value: "#c9a46a" },
   { name: "Pink", value: "#ec4899" },
   { name: "Gray", value: "#6b7280" },
 ];
@@ -47,11 +49,14 @@ interface PropertyPanelProps {
   backgroundView: PdfBackgroundView;
   backgroundOpacity: number;
   showBackground: boolean;
-  showDistanceLines: boolean;
+  showBoundaryDistanceLines: boolean;
+  showBuildingDimensions: boolean;
+  coreRotationSnapBase: number;
   onBackgroundViewChange: (view: PdfBackgroundView) => void;
   onBackgroundOpacityChange: (opacity: number) => void;
   onShowBackgroundChange: (isVisible: boolean) => void;
-  onShowDistanceLinesChange: (isVisible: boolean) => void;
+  onShowBoundaryDistanceLinesChange: (isVisible: boolean) => void;
+  onShowBuildingDimensionsChange: (isVisible: boolean) => void;
   onProjectSiteChange: (projectSite: ProjectSite) => void;
   onBuildingChange: (building: Building) => void;
   onDeleteBuilding: () => void;
@@ -86,11 +91,14 @@ export function PropertyPanel({
   backgroundView,
   backgroundOpacity,
   showBackground,
-  showDistanceLines,
+  showBoundaryDistanceLines,
+  showBuildingDimensions,
+  coreRotationSnapBase,
   onBackgroundViewChange,
   onBackgroundOpacityChange,
   onShowBackgroundChange,
-  onShowDistanceLinesChange,
+  onShowBoundaryDistanceLinesChange,
+  onShowBuildingDimensionsChange,
   onProjectSiteChange,
   onBuildingChange,
   onDeleteBuilding,
@@ -107,6 +115,7 @@ export function PropertyPanel({
   onExistingBuildingChange,
 }: PropertyPanelProps) {
   const buildingIsCore = selectedBuilding ? isCoreBuilding(selectedBuilding) : false;
+  const buildingUsesOrientationSnap = selectedBuilding ? isBuildingOrientationSnappedElement(selectedBuilding) : false;
   const activeSectionClass = isTreeToolActive || selectedTree
     ? "activeTreeSection"
     : selectedRoad
@@ -175,10 +184,18 @@ export function PropertyPanel({
         <label className="inlineToggle">
           <input
             type="checkbox"
-            checked={showDistanceLines}
-            onChange={(event) => onShowDistanceLinesChange(event.target.checked)}
+            checked={showBoundaryDistanceLines}
+            onChange={(event) => onShowBoundaryDistanceLinesChange(event.target.checked)}
           />
-          <span>Show Distance Lines</span>
+          <span>Show Boundary Distance Lines</span>
+        </label>
+        <label className="inlineToggle">
+          <input
+            type="checkbox"
+            checked={showBuildingDimensions}
+            onChange={(event) => onShowBuildingDimensionsChange(event.target.checked)}
+          />
+          <span>Show Building Dimensions</span>
         </label>
       </section>
 
@@ -674,14 +691,37 @@ export function PropertyPanel({
                 max="359.9"
                 step="0.1"
                 value={formatRotation(selectedBuilding.rotation)}
-                onChange={(event) =>
+                onChange={(event) => {
+                  const rotation = normalizeRotation(Number(event.target.value) || 0);
                   onBuildingChange({
                     ...selectedBuilding,
-                    rotation: normalizeRotation(Number(event.target.value) || 0),
-                  })
-                }
+                    rotation:
+                      buildingUsesOrientationSnap && selectedBuilding.snapToBuildingOrientation !== false
+                        ? snapCoreRotation(rotation, coreRotationSnapBase)
+                        : rotation,
+                  });
+                }}
               />
             </label>
+            {buildingUsesOrientationSnap ? (
+              <label className="inlineToggle">
+                <input
+                  type="checkbox"
+                  checked={selectedBuilding.snapToBuildingOrientation !== false}
+                  onChange={(event) => {
+                    const snapToBuildingOrientation = event.target.checked;
+                    onBuildingChange({
+                      ...selectedBuilding,
+                      snapToBuildingOrientation,
+                      rotation: snapToBuildingOrientation
+                        ? snapCoreRotation(selectedBuilding.rotation, coreRotationSnapBase)
+                        : selectedBuilding.rotation,
+                    });
+                  }}
+                />
+                <span>Snap To Building Orientation</span>
+              </label>
+            ) : null}
             <label>
               <span>X (m)</span>
               <input

@@ -14,7 +14,15 @@ import type {
 } from "../types/layout";
 import { DEFAULT_BUILDING_LABEL_FONT_SIZE } from "../models/Building";
 import { DEFAULT_PROJECT_NAME } from "./projectName";
+import { getBridgeBeamOffsets } from "../utils/bridgeGraphics";
 import { getEntranceAnnotationGap, getEntranceLabelCoordinates } from "../utils/entranceAnnotation";
+import {
+  getStairTreadOffsets,
+  getThickStairLayout,
+  getThinStairLayout,
+  isThickStair,
+  isThinStair,
+} from "../utils/stairGraphics";
 import { getToiletStallCount, getToiletVisualLayout } from "../utils/toiletLayout";
 import { getSidewalkPoints } from "../utils/sidewalkGeometry";
 
@@ -27,6 +35,19 @@ export interface ConceptSitePlanRender {
   exportedAt: string;
   previewDataUrl: string;
   thumbnailDataUrl: string;
+  images: Array<{
+    id: string;
+    name: string;
+    previewDataUrl: string;
+    thumbnailDataUrl: string;
+  }>;
+}
+
+export interface ExportArea {
+  minX: number;
+  maxX: number;
+  minY: number;
+  maxY: number;
 }
 
 export async function exportConceptSitePlan(
@@ -47,9 +68,140 @@ export async function exportConceptSitePlan(
   siteShape: SiteShape = "rectangle",
   siteVertices: Array<{ x: number; y: number }> = [],
   edgeLengths: number[] = [],
-  showDistanceLines = false,
+  showBoundaryDistanceLines = false,
+  showBuildingDimensions = false,
   selectedBuildingId?: string,
+  exportArea?: ExportArea,
 ): Promise<ConceptSitePlanRender | undefined> {
+  const backgroundImage = backgroundImageSrc
+    ? await loadExportImage(backgroundImageSrc)
+    : undefined;
+  const focusedCanvas = renderConceptSitePlanCanvas({
+    site,
+    buildings,
+    siteLabels,
+    trees,
+    sidewalks,
+    entrances,
+    roads,
+    ancillaryBuildings,
+    crop,
+    siteBoundary,
+    existingBuildings,
+    existingTrees,
+    backgroundImage,
+    projectName,
+    siteShape,
+    siteVertices,
+    edgeLengths,
+    showBoundaryDistanceLines,
+    showBuildingDimensions,
+    selectedBuildingId,
+    exportArea,
+  });
+  const fullContextCanvas = exportArea
+    ? renderConceptSitePlanCanvas({
+        site,
+        buildings,
+        siteLabels,
+        trees,
+        sidewalks,
+        entrances,
+        roads,
+        ancillaryBuildings,
+        crop,
+        siteBoundary,
+        existingBuildings,
+        existingTrees,
+        backgroundImage,
+        projectName,
+        siteShape,
+        siteVertices,
+        edgeLengths,
+        showBoundaryDistanceLines,
+        showBuildingDimensions,
+        selectedBuildingId,
+      })
+    : focusedCanvas;
+  if (!focusedCanvas || !fullContextCanvas) return undefined;
+
+  const exportedAt = new Date();
+  const blob = await canvasToBlob(focusedCanvas, "image/png");
+  if (!blob) return undefined;
+
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = `${sanitizeFilename(projectName)}-concept-site-plan-${formatDate(exportedAt)}.png`;
+  anchor.click();
+  window.setTimeout(() => URL.revokeObjectURL(url), 0);
+
+  const focusedImage = {
+    id: "focused",
+    name: "Focused Site Image",
+    previewDataUrl: createScaledImage(focusedCanvas, 1400, 0.82),
+    thumbnailDataUrl: createScaledImage(focusedCanvas, 360, 0.72),
+  };
+  const fullContextImage = {
+    id: "full-context",
+    name: "Full Context Image",
+    previewDataUrl: createScaledImage(fullContextCanvas, 1400, 0.82),
+    thumbnailDataUrl: createScaledImage(fullContextCanvas, 360, 0.72),
+  };
+
+  return {
+    exportedAt: exportedAt.toISOString(),
+    previewDataUrl: focusedImage.previewDataUrl,
+    thumbnailDataUrl: focusedImage.thumbnailDataUrl,
+    images: exportArea ? [focusedImage, fullContextImage] : [focusedImage],
+  };
+}
+
+function renderConceptSitePlanCanvas({
+  site,
+  buildings,
+  siteLabels,
+  trees,
+  sidewalks,
+  entrances,
+  roads,
+  ancillaryBuildings,
+  crop,
+  siteBoundary,
+  existingBuildings,
+  existingTrees,
+  backgroundImage,
+  projectName,
+  siteShape,
+  siteVertices,
+  edgeLengths,
+  showBoundaryDistanceLines,
+  showBuildingDimensions,
+  selectedBuildingId,
+  exportArea,
+}: {
+  site: SiteDimensions;
+  buildings: Building[];
+  siteLabels: SiteLabel[];
+  trees: Tree[];
+  sidewalks: Sidewalk[];
+  entrances: Entrance[];
+  roads: SetupRoad[];
+  ancillaryBuildings: AncillaryBuilding[];
+  crop?: PdfBackgroundMeta["crop"];
+  siteBoundary?: PdfBackgroundMeta["siteBoundary"];
+  existingBuildings: ExistingBuilding[];
+  existingTrees: ExistingTree[];
+  backgroundImage?: HTMLImageElement;
+  projectName: string;
+  siteShape: SiteShape;
+  siteVertices: Array<{ x: number; y: number }>;
+  edgeLengths: number[];
+  showBoundaryDistanceLines: boolean;
+  showBuildingDimensions: boolean;
+  selectedBuildingId?: string;
+  exportArea?: ExportArea;
+}) {
   const canvas = document.createElement("canvas");
   canvas.width = exportWidth;
   canvas.height = exportHeight;
@@ -61,7 +213,7 @@ export async function exportConceptSitePlan(
 
   const availableWidth = exportWidth - drawingMargin * 2;
   const availableHeight = exportHeight - drawingMargin * 2 - titleBlockHeight;
-  const analysisBounds = getExportAnalysisBounds(site, crop, siteBoundary);
+  const analysisBounds = exportArea ?? getExportAnalysisBounds(site, crop, siteBoundary);
   const exportPlanWidth = analysisBounds.maxX - analysisBounds.minX;
   const exportPlanHeight = analysisBounds.maxY - analysisBounds.minY;
   const scale = Math.min(availableWidth / exportPlanWidth, availableHeight / exportPlanHeight);
@@ -78,9 +230,6 @@ export async function exportConceptSitePlan(
   const siteWidth = site.width * scale;
   const siteHeight = site.length * scale;
 
-  const backgroundImage = backgroundImageSrc
-    ? await loadExportImage(backgroundImageSrc)
-    : undefined;
   if (backgroundImage && crop?.width && crop.height && siteBoundary?.width && siteBoundary.height) {
     drawBackgroundImage(
       context,
@@ -151,8 +300,11 @@ export async function exportConceptSitePlan(
   drawSidewalks(context, sidewalks, site, origin, scale);
   drawTrees(context, trees, origin, scale);
   drawBuildings(context, buildings, origin, scale);
-  if (showDistanceLines && selectedBuildingId) {
+  if (showBoundaryDistanceLines && selectedBuildingId) {
     drawDistanceAnnotations(context, buildings, selectedBuildingId, site, origin, scale);
+  }
+  if (showBuildingDimensions && selectedBuildingId) {
+    drawSelectedBuildingDimensions(context, buildings, selectedBuildingId, origin, scale);
   }
   drawEntrances(context, entrances, origin, scale);
   drawSiteLabels(context, siteLabels, origin, scale);
@@ -192,25 +344,9 @@ export async function exportConceptSitePlan(
     true,
   );
   context.restore();
-  drawNorthArrow(context, exportWidth - 330, 280);
   drawTitleBlock(context, projectName);
 
-  const exportedAt = new Date();
-  const blob = await canvasToBlob(canvas, "image/png");
-  if (!blob) return undefined;
-
-  const url = URL.createObjectURL(blob);
-  const anchor = document.createElement("a");
-  anchor.href = url;
-  anchor.download = `${sanitizeFilename(projectName)}-concept-site-plan-${formatDate(exportedAt)}.png`;
-  anchor.click();
-  window.setTimeout(() => URL.revokeObjectURL(url), 0);
-
-  return {
-    exportedAt: exportedAt.toISOString(),
-    previewDataUrl: createScaledImage(canvas, 1400, 0.82),
-    thumbnailDataUrl: createScaledImage(canvas, 360, 0.72),
-  };
+  return canvas;
 }
 
 function canvasToBlob(canvas: HTMLCanvasElement, type: string) {
@@ -1002,11 +1138,21 @@ function drawBuildings(
     context.translate(x, y);
     context.rotate((building.rotation * Math.PI) / 180);
 
-    drawBuildingOutline(context, width, height, building.color);
-    if (building.type === "toilet") {
-      drawToilet(context, building, width, height);
+    if (building.type === "bridge") {
+      drawBridgeOutline(context, width, height, building.color);
+      drawBridgeBoundaryDashedLines(context, width, height);
+      drawBridgeBeams(context, building, width, height, scale);
     } else {
-      drawBuildingProgramSchedule(context, building, width, height);
+      drawBuildingOutline(context, width, height, building.color);
+      if (building.type === "elevator") {
+        drawElevatorSymbol(context, building, width, height);
+      } else if (isThickStair(building.type, building.coreVariant) || isThinStair(building.type, building.coreVariant)) {
+        drawStairTreads(context, building, width, height, scale);
+      } else if (building.type === "toilet") {
+        drawToilet(context, building, width, height);
+      } else {
+        drawBuildingProgramSchedule(context, building, width, height);
+      }
     }
 
     context.restore();
@@ -1029,24 +1175,153 @@ function drawBuildingOutline(
   context.strokeRect(0, 0, width, height);
 }
 
-function drawBridge(context: CanvasRenderingContext2D, width: number, height: number) {
-  drawBuildingOutline(context, width, height);
+function drawBridgeOutline(
+  context: CanvasRenderingContext2D,
+  width: number,
+  height: number,
+  color: string,
+) {
+  context.save();
+  context.globalAlpha = 0.68;
+  context.fillStyle = color;
+  context.fillRect(0, 0, width, height);
+  context.restore();
+
+}
+
+function drawBridgeBoundaryDashedLines(
+  context: CanvasRenderingContext2D,
+  width: number,
+  height: number,
+) {
+  context.save();
+  context.strokeStyle = "#111827";
+  context.lineWidth = Math.max(3, Math.min(7, Math.min(width, height) * 0.035));
+  context.setLineDash([28, 22]);
+  context.beginPath();
+  context.moveTo(0, context.lineWidth / 2);
+  context.lineTo(width, context.lineWidth / 2);
+  context.moveTo(0, height - context.lineWidth / 2);
+  context.lineTo(width, height - context.lineWidth / 2);
+  context.stroke();
+  context.restore();
+}
+
+function drawStairTreads(
+  context: CanvasRenderingContext2D,
+  building: Building,
+  width: number,
+  height: number,
+  scale: number,
+) {
+  const runIsHorizontal = building.length >= building.width;
+  const runLength = runIsHorizontal ? building.length : building.width;
+  const thickLayout = isThickStair(building.type, building.coreVariant) ? getThickStairLayout(runLength) : undefined;
+  const thinLayout = !thickLayout && isThinStair(building.type, building.coreVariant) ? getThinStairLayout(runLength) : undefined;
+  const stairLayout = thickLayout ?? thinLayout;
+  const offsets = stairLayout?.treadOffsets ?? getStairTreadOffsets(runLength);
+  const separatorOffsets = stairLayout ? [stairLayout.stairRunStart, stairLayout.stairRunEnd] : [];
+
+  context.save();
+  context.beginPath();
+  context.rect(0, 0, width, height);
+  context.clip();
   context.strokeStyle = "#000000";
   context.lineWidth = 4;
-  context.beginPath();
-  context.moveTo(0, height * 0.25);
-  context.lineTo(width, height * 0.25);
-  context.moveTo(0, height * 0.75);
-  context.lineTo(width, height * 0.75);
-  context.stroke();
 
-  const beamSpacing = Math.max(45, height * 1.5);
-  for (let beamX = beamSpacing; beamX < width; beamX += beamSpacing) {
+  separatorOffsets.forEach((offset) => {
+    const position = offset * scale;
     context.beginPath();
-    context.moveTo(beamX, 0);
-    context.lineTo(beamX, height);
+    if (runIsHorizontal) {
+      context.moveTo(position, 0);
+      context.lineTo(position, height);
+    } else {
+      context.moveTo(0, position);
+      context.lineTo(width, position);
+    }
+    context.stroke();
+  });
+
+  offsets.forEach((offset) => {
+    const position = offset * scale;
+    context.beginPath();
+    if (runIsHorizontal) {
+      context.moveTo(position, 0);
+      context.lineTo(position, height);
+    } else {
+      context.moveTo(0, position);
+      context.lineTo(width, position);
+    }
+    context.stroke();
+  });
+
+  if (thickLayout) {
+    context.beginPath();
+    if (runIsHorizontal) {
+      context.moveTo(thickLayout.stairRunStart * scale, height / 2);
+      context.lineTo(thickLayout.stairRunEnd * scale, height / 2);
+    } else {
+      context.moveTo(width / 2, thickLayout.stairRunStart * scale);
+      context.lineTo(width / 2, thickLayout.stairRunEnd * scale);
+    }
     context.stroke();
   }
+
+  context.restore();
+}
+
+function drawElevatorSymbol(
+  context: CanvasRenderingContext2D,
+  building: Building,
+  width: number,
+  height: number,
+) {
+  const inset = Math.max(28, Math.min(72, Math.min(width, height) * 0.16));
+  const lineWidth = Math.max(6, Math.min(14, Math.min(width, height) * 0.045));
+  const carCount = building.coreVariant === "double" ? 2 : 1;
+  const carGap = carCount > 1 ? Math.max(lineWidth * 1.6, Math.min(width, height) * 0.08) : 0;
+  const availableWidth = Math.max(1, width - inset * 2 - carGap * (carCount - 1));
+  const carWidth = availableWidth / carCount;
+  const carHeight = Math.max(1, height - inset * 2);
+
+  context.save();
+  context.strokeStyle = "#000000";
+  context.lineWidth = lineWidth;
+
+  Array.from({ length: carCount }).forEach((_, index) => {
+    const x = inset + index * (carWidth + carGap);
+    context.strokeRect(x, inset, carWidth, carHeight);
+    context.beginPath();
+    context.moveTo(x, inset);
+    context.lineTo(x + carWidth, inset + carHeight);
+    context.moveTo(x + carWidth, inset);
+    context.lineTo(x, inset + carHeight);
+    context.stroke();
+  });
+
+  context.restore();
+}
+
+function drawBridgeBeams(
+  context: CanvasRenderingContext2D,
+  building: Building,
+  width: number,
+  height: number,
+  scale: number,
+) {
+  const offsets = getBridgeBeamOffsets(building.length);
+  const markerSize = Math.max(18, Math.min(height * 0.35, Math.min(width, height) * 0.16));
+  const edgeInset = Math.max(10, Math.min(height * 0.12, markerSize * 0.45));
+
+  context.strokeStyle = "#000000";
+  context.fillStyle = "#000000";
+
+  offsets.forEach((offset) => {
+    const x = offset * scale;
+    const markerX = Math.max(0, Math.min(width - markerSize, x - markerSize / 2));
+    context.fillRect(markerX, edgeInset, markerSize, markerSize);
+    context.fillRect(markerX, height - edgeInset - markerSize, markerSize, markerSize);
+  });
 }
 
 function drawToilet(
@@ -1429,6 +1704,70 @@ function drawDistanceAnnotations(
   context.restore();
 }
 
+function drawSelectedBuildingDimensions(
+  context: CanvasRenderingContext2D,
+  buildings: Building[],
+  selectedBuildingId: string,
+  origin: { x: number; y: number },
+  scale: number,
+) {
+  const building = buildings.find((item) => item.id === selectedBuildingId);
+  if (!building) return;
+
+  const x = origin.x + building.x * scale;
+  const y = origin.y + building.y * scale;
+  const width = building.length * scale;
+  const height = building.width * scale;
+  const offset = Math.max(46, Math.min(88, Math.min(width, height) * 0.28));
+  const tick = Math.max(18, Math.min(34, offset * 0.38));
+
+  context.save();
+  context.translate(x, y);
+  context.rotate((building.rotation * Math.PI) / 180);
+  context.strokeStyle = "#000000";
+  context.fillStyle = "#000000";
+  context.lineWidth = 4;
+  context.font = "700 30px Arial";
+  context.textAlign = "center";
+  context.textBaseline = "middle";
+
+  drawDimensionLineWithTicks(context, 0, -offset, width, -offset, tick);
+  context.fillText(`${building.length.toFixed(1)} m`, width / 2, -offset - 34);
+
+  drawDimensionLineWithTicks(context, width + offset, 0, width + offset, height, tick);
+  context.save();
+  context.translate(width + offset + 38, height / 2);
+  context.rotate(Math.PI / 2);
+  context.fillText(`${building.width.toFixed(1)} m`, 0, 0);
+  context.restore();
+  context.restore();
+}
+
+function drawDimensionLineWithTicks(
+  context: CanvasRenderingContext2D,
+  startX: number,
+  startY: number,
+  endX: number,
+  endY: number,
+  tick: number,
+) {
+  context.beginPath();
+  context.moveTo(startX, startY);
+  context.lineTo(endX, endY);
+  if (Math.abs(endX - startX) >= Math.abs(endY - startY)) {
+    context.moveTo(startX, startY - tick / 2);
+    context.lineTo(startX, startY + tick / 2);
+    context.moveTo(endX, endY - tick / 2);
+    context.lineTo(endX, endY + tick / 2);
+  } else {
+    context.moveTo(startX - tick / 2, startY);
+    context.lineTo(startX + tick / 2, startY);
+    context.moveTo(endX - tick / 2, endY);
+    context.lineTo(endX + tick / 2, endY);
+  }
+  context.stroke();
+}
+
 function drawExportDimension(
   context: CanvasRenderingContext2D,
   startX: number,
@@ -1552,27 +1891,6 @@ function drawArrowHead(context: CanvasRenderingContext2D, x: number, y: number, 
   context.stroke();
 }
 
-function drawNorthArrow(context: CanvasRenderingContext2D, x: number, y: number) {
-  context.save();
-  context.strokeStyle = "#000000";
-  context.fillStyle = "#000000";
-  context.lineWidth = 7;
-  context.font = "700 58px Arial";
-  context.textAlign = "center";
-  context.fillText("N", x, y - 90);
-  context.beginPath();
-  context.moveTo(x, y + 95);
-  context.lineTo(x, y - 45);
-  context.stroke();
-  context.beginPath();
-  context.moveTo(x, y - 70);
-  context.lineTo(x - 28, y - 20);
-  context.lineTo(x + 28, y - 20);
-  context.closePath();
-  context.fill();
-  context.restore();
-}
-
 function drawTitleBlock(context: CanvasRenderingContext2D, projectName: string) {
   const top = exportHeight - titleBlockHeight;
   context.save();
@@ -1588,13 +1906,7 @@ function drawTitleBlock(context: CanvasRenderingContext2D, projectName: string) 
   context.textAlign = "left";
   context.fillText("SITE PLAN", drawingMargin, top + 98);
   context.font = "42px Arial";
-  context.fillText(projectName, drawingMargin, top + 164, exportWidth - drawingMargin * 2 - 280);
-
-  context.textAlign = "right";
-  context.font = "700 52px Arial";
-  context.fillText("1:500", exportWidth - drawingMargin, top + 96);
-  context.font = "34px Arial";
-  context.fillText("SCALE", exportWidth - drawingMargin, top + 152);
+  context.fillText(projectName, drawingMargin, top + 164, exportWidth - drawingMargin * 2);
   context.restore();
 }
 

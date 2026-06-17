@@ -3,6 +3,15 @@ import type Konva from "konva";
 import { useEffect, useRef } from "react";
 import { DEFAULT_BUILDING_LABEL_FONT_SIZE } from "../models/Building";
 import type { Building, SiteDimensions } from "../types/layout";
+import { getBridgeBeamOffsets } from "../utils/bridgeGraphics";
+import { shouldSnapCoreRotation, snapCoreRotation } from "../utils/coreRotation";
+import {
+  getStairTreadOffsets,
+  getThickStairLayout,
+  getThinStairLayout,
+  isThickStair,
+  isThinStair,
+} from "../utils/stairGraphics";
 import { getToiletStallCount, getToiletVisualLayout } from "../utils/toiletLayout";
 
 interface BuildingShapeProps {
@@ -19,6 +28,7 @@ interface BuildingShapeProps {
     y: number;
   };
   showDimensionAnnotations: boolean;
+  rotationSnapBase: number;
   isSelected: boolean;
   onSelect: () => void;
   onEntrancePlacement?: (building: Building, localX: number, localY: number) => void;
@@ -33,6 +43,7 @@ export function BuildingShape({
   dragBounds,
   renderScale,
   showDimensionAnnotations,
+  rotationSnapBase,
   isSelected,
   onSelect,
   onEntrancePlacement,
@@ -47,6 +58,7 @@ export function BuildingShape({
   const minimumHandleSize = Math.min(ppmX, ppmY);
   const buildingWidthPx = building.length * ppmX;
   const buildingHeightPx = building.width * ppmY;
+  const isBridge = building.type === "bridge";
 
   useEffect(() => {
     if (isSelected && rectRef.current && transformerRef.current) {
@@ -64,10 +76,10 @@ export function BuildingShape({
         width={buildingWidthPx}
         height={buildingHeightPx}
         rotation={building.rotation}
-        fill={building.color}
-        opacity={0.82}
-        stroke={isSelected ? "#111827" : "#ffffff"}
-        strokeWidth={2}
+        fill={isBridge ? getTransparentFill(building.color, 0.68) : building.color}
+        opacity={isBridge ? 1 : 0.82}
+        stroke={isBridge ? undefined : isSelected ? "#111827" : "#ffffff"}
+        strokeWidth={isBridge ? 0 : 2}
         draggable={!onEntrancePlacement}
         onClick={(event) => {
           if (onEntrancePlacement) {
@@ -102,11 +114,12 @@ export function BuildingShape({
           node.height(nextWidth * ppmY);
           node.scaleX(1);
           node.scaleY(1);
+          const rotation = normalizeRotation(node.rotation());
           onChange({
             ...building,
             length: nextLength,
             width: nextWidth,
-            rotation: normalizeRotation(node.rotation()),
+            rotation,
           });
         }}
         onTransformEnd={() => {
@@ -119,7 +132,9 @@ export function BuildingShape({
 
           const length = Math.max(1, (node.width() * scaleX) / ppmX);
           const width = building.type === "square" ? length : Math.max(1, (node.height() * scaleY) / ppmY);
-          const rotation = normalizeRotation(node.rotation());
+          const rotation = shouldSnapCoreRotation(building)
+            ? snapCoreRotation(node.rotation(), rotationSnapBase)
+            : normalizeRotation(node.rotation());
           node.rotation(rotation);
           const next = keepNodeInsideBounds(node, site, dragBounds, ppmX, ppmY);
 
@@ -134,7 +149,31 @@ export function BuildingShape({
           onEditEnd();
         }}
       />
-      {building.type === "toilet" ? (
+      {building.type === "bridge" ? (
+        <BridgeBeams
+          building={building}
+          ppmX={ppmX}
+          ppmY={ppmY}
+          widthPx={buildingWidthPx}
+          heightPx={buildingHeightPx}
+        />
+      ) : building.type === "elevator" ? (
+        <ElevatorSymbol
+          building={building}
+          ppmX={ppmX}
+          ppmY={ppmY}
+          widthPx={buildingWidthPx}
+          heightPx={buildingHeightPx}
+        />
+      ) : isThickStair(building.type, building.coreVariant) || isThinStair(building.type, building.coreVariant) ? (
+        <StairTreads
+          building={building}
+          ppmX={ppmX}
+          ppmY={ppmY}
+          widthPx={buildingWidthPx}
+          heightPx={buildingHeightPx}
+        />
+      ) : building.type === "toilet" ? (
         <ToiletInterior
           building={building}
           ppmX={ppmX}
@@ -371,6 +410,197 @@ function BuildingProgramLabel({
   );
 }
 
+function StairTreads({
+  building,
+  ppmX,
+  ppmY,
+  widthPx,
+  heightPx,
+}: {
+  building: Building;
+  ppmX: number;
+  ppmY: number;
+  widthPx: number;
+  heightPx: number;
+}) {
+  const runIsHorizontal = building.length >= building.width;
+  const runLength = runIsHorizontal ? building.length : building.width;
+  const thickLayout = isThickStair(building.type, building.coreVariant) ? getThickStairLayout(runLength) : undefined;
+  const thinLayout = !thickLayout && isThinStair(building.type, building.coreVariant) ? getThinStairLayout(runLength) : undefined;
+  const stairLayout = thickLayout ?? thinLayout;
+  const offsets = stairLayout?.treadOffsets ?? getStairTreadOffsets(runLength);
+  const separatorOffsets = stairLayout ? [stairLayout.stairRunStart, stairLayout.stairRunEnd] : [];
+
+  return (
+    <Group
+      x={building.x * ppmX}
+      y={building.y * ppmY}
+      rotation={building.rotation}
+      clipX={0}
+      clipY={0}
+      clipWidth={widthPx}
+      clipHeight={heightPx}
+      listening={false}
+    >
+      {separatorOffsets.map((offset) => {
+        const position = runIsHorizontal ? offset * ppmX : offset * ppmY;
+        return (
+          <Line
+            key={`landing-${offset}`}
+            points={runIsHorizontal ? [position, 0, position, heightPx] : [0, position, widthPx, position]}
+            stroke="#111827"
+            strokeWidth={1.4}
+          />
+        );
+      })}
+      {offsets.map((offset) => {
+        const position = runIsHorizontal ? offset * ppmX : offset * ppmY;
+        return (
+          <Line
+            key={offset}
+            points={runIsHorizontal ? [position, 0, position, heightPx] : [0, position, widthPx, position]}
+            stroke="#111827"
+            strokeWidth={1.4}
+          />
+        );
+      })}
+      {thickLayout ? (
+        <Line
+          points={
+            runIsHorizontal
+              ? [thickLayout.stairRunStart * ppmX, heightPx / 2, thickLayout.stairRunEnd * ppmX, heightPx / 2]
+              : [widthPx / 2, thickLayout.stairRunStart * ppmY, widthPx / 2, thickLayout.stairRunEnd * ppmY]
+          }
+          stroke="#111827"
+          strokeWidth={1.6}
+        />
+      ) : null}
+    </Group>
+  );
+}
+
+function ElevatorSymbol({
+  building,
+  ppmX,
+  ppmY,
+  widthPx,
+  heightPx,
+}: {
+  building: Building;
+  ppmX: number;
+  ppmY: number;
+  widthPx: number;
+  heightPx: number;
+}) {
+  const inset = clamp(Math.min(widthPx, heightPx) * 0.16, 5, 18);
+  const strokeWidth = clamp(Math.min(widthPx, heightPx) * 0.045, 1.5, 4);
+  const carCount = building.coreVariant === "double" ? 2 : 1;
+  const carGap = carCount > 1 ? Math.max(strokeWidth * 1.6, Math.min(widthPx, heightPx) * 0.08) : 0;
+  const availableWidth = Math.max(1, widthPx - inset * 2 - carGap * (carCount - 1));
+  const carWidth = availableWidth / carCount;
+  const carHeight = Math.max(1, heightPx - inset * 2);
+
+  return (
+    <Group
+      x={building.x * ppmX}
+      y={building.y * ppmY}
+      rotation={building.rotation}
+      clipX={0}
+      clipY={0}
+      clipWidth={widthPx}
+      clipHeight={heightPx}
+      listening={false}
+    >
+      {Array.from({ length: carCount }, (_, index) => {
+        const x = inset + index * (carWidth + carGap);
+        return (
+          <Group key={index}>
+            <Rect
+              x={x}
+              y={inset}
+              width={carWidth}
+              height={carHeight}
+              stroke="#111827"
+              strokeWidth={strokeWidth}
+            />
+            <Line
+              points={[x, inset, x + carWidth, inset + carHeight]}
+              stroke="#111827"
+              strokeWidth={strokeWidth}
+            />
+            <Line
+              points={[x + carWidth, inset, x, inset + carHeight]}
+              stroke="#111827"
+              strokeWidth={strokeWidth}
+            />
+          </Group>
+        );
+      })}
+    </Group>
+  );
+}
+
+function BridgeBeams({
+  building,
+  ppmX,
+  ppmY,
+  widthPx,
+  heightPx,
+}: {
+  building: Building;
+  ppmX: number;
+  ppmY: number;
+  widthPx: number;
+  heightPx: number;
+}) {
+  const offsets = getBridgeBeamOffsets(building.length);
+  const markerSize = clamp(Math.min(widthPx, heightPx) * 0.16, 6, Math.max(6, heightPx * 0.35));
+  const dashStrokeWidth = clamp(Math.min(widthPx, heightPx) * 0.035, 1.25, 3);
+  const edgeInset = clamp(heightPx * 0.1, dashStrokeWidth * 2, Math.max(dashStrokeWidth * 2, heightPx * 0.22));
+
+  return (
+    <Group
+      x={building.x * ppmX}
+      y={building.y * ppmY}
+      rotation={building.rotation}
+      clipX={0}
+      clipY={0}
+      clipWidth={widthPx}
+      clipHeight={heightPx}
+      listening={false}
+    >
+      <Line
+        points={[0, dashStrokeWidth / 2, widthPx, dashStrokeWidth / 2]}
+        stroke="#111827"
+        strokeWidth={dashStrokeWidth}
+        dash={[9, 7]}
+      />
+      <Line
+        points={[0, heightPx - dashStrokeWidth / 2, widthPx, heightPx - dashStrokeWidth / 2]}
+        stroke="#111827"
+        strokeWidth={dashStrokeWidth}
+        dash={[9, 7]}
+      />
+      {offsets.map((offset) => {
+        const x = offset * ppmX;
+        const markerX = clamp(x - markerSize / 2, 0, Math.max(0, widthPx - markerSize));
+        return (
+          <Group key={offset}>
+            <Rect x={markerX} y={edgeInset} width={markerSize} height={markerSize} fill="#111827" />
+            <Rect
+              x={markerX}
+              y={heightPx - edgeInset - markerSize}
+              width={markerSize}
+              height={markerSize}
+              fill="#111827"
+            />
+          </Group>
+        );
+      })}
+    </Group>
+  );
+}
+
 function ToiletInterior({
   building,
   ppmX,
@@ -474,6 +704,16 @@ function formatArea(value: number) {
 
 function clamp(value: number, min: number, max: number) {
   return Math.max(min, Math.min(max, value));
+}
+
+function getTransparentFill(color: string, alpha: number) {
+  const match = color.match(/^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i);
+  if (!match) return color;
+
+  const red = Number.parseInt(match[1], 16);
+  const green = Number.parseInt(match[2], 16);
+  const blue = Number.parseInt(match[3], 16);
+  return `rgba(${red}, ${green}, ${blue}, ${alpha})`;
 }
 
 function getContrastingTextColor(color: string) {

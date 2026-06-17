@@ -17,8 +17,6 @@ interface ToolbarProps {
   onRedo: () => void;
   canUndo: boolean;
   canRedo: boolean;
-  showDistanceLines: boolean;
-  onToggleDistanceLines: () => void;
   onToggleSidebar: () => void;
   isSidebarCollapsed: boolean;
   onSaveLayout: () => void;
@@ -44,8 +42,6 @@ export function Toolbar({
   onRedo,
   canUndo,
   canRedo,
-  showDistanceLines,
-  onToggleDistanceLines,
   onToggleSidebar,
   isSidebarCollapsed,
   onSaveLayout,
@@ -156,9 +152,6 @@ export function Toolbar({
       </button>
       <button className="secondaryButton" type="button" disabled={!canRedo} onClick={onRedo}>
         Redo
-      </button>
-      <button className="secondaryButton" type="button" onClick={onToggleDistanceLines}>
-        {showDistanceLines ? "Hide Distance Lines" : "Show Distance Lines"}
       </button>
       <button className="secondaryButton" type="button" onClick={onToggleSidebar}>
         {isSidebarCollapsed ? "Show Sidebar" : "Hide Sidebar"}

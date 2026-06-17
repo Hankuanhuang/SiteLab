@@ -185,18 +185,60 @@ export function PdfSiteSetup() {
   >(undefined);
   const spacePressedRef = useRef(false);
 
+  const polygonEdgeLengthState =
+    polygonBoundary.length >= 3 ? resolvePolygonEdgeLengths(polygonBoundary, edgeLengthDrafts) : undefined;
+  const canUsePendingPolygonBoundary = Boolean(
+    cropSelection &&
+      polygonBoundary.length >= 3 &&
+      polygonEdgeLengthState?.isUsable &&
+      polygonEdgeLengthState.pixelsPerMeter,
+  );
   const canContinue = Boolean(
     renderSize.width &&
       renderSize.height &&
       cropSelection &&
-      projectSites.length,
+      (projectSites.length || canUsePendingPolygonBoundary),
   );
-  const polygonEdgeLengthState =
-    polygonBoundary.length >= 3 ? resolvePolygonEdgeLengths(polygonBoundary, edgeLengthDrafts) : undefined;
+  const layoutBuilderDisabledReason = getLayoutBuilderDisabledReason({
+    renderSize,
+    cropSelection,
+    projectSitesLength: projectSites.length,
+    canUsePendingPolygonBoundary,
+    polygonBoundaryLength: polygonBoundary.length,
+    polygonEdgeLengthState,
+  });
   const pageOptions = useMemo(
     () => Array.from({ length: pageCount }, (_, index) => index + 1),
     [pageCount],
   );
+
+  useEffect(() => {
+    console.debug("[Polygon Boundary Debug] validation state", {
+      pointCount: polygonBoundary.length,
+      edgeLengthDrafts,
+      polygonEdgeLengthState,
+    });
+  }, [edgeLengthDrafts, polygonBoundary.length, polygonEdgeLengthState]);
+
+  useEffect(() => {
+    console.debug("[Polygon Boundary Debug] boundary completion state", {
+      siteShape,
+      selectionMode,
+      boundaryStepStatus: selectionStepStatuses.boundary,
+      projectSitesLength: projectSites.length,
+      canUsePendingPolygonBoundary,
+      canContinue,
+      layoutBuilderDisabledReason,
+    });
+  }, [
+    canContinue,
+    canUsePendingPolygonBoundary,
+    layoutBuilderDisabledReason,
+    projectSites.length,
+    selectionMode,
+    selectionStepStatuses.boundary,
+    siteShape,
+  ]);
 
   const fitBounds = useCallback((bounds: SelectionRect) => {
     const workspace = workspaceRef.current;
@@ -1280,35 +1322,46 @@ export function PdfSiteSetup() {
   };
 
   const addPolygonProjectSite = () => {
-    if (!cropSelection || polygonBoundary.length < 3 || !polygonEdgeLengthState?.isUsable) return;
-
-    const polygonBounds = getPointsBounds(polygonBoundary);
-    const pixelsPerMeter = polygonEdgeLengthState.pixelsPerMeter;
-    if (!polygonBounds || !pixelsPerMeter) return;
+    const projectSite = createPolygonProjectSite(projectSites.length);
+    if (!projectSite) return;
 
     setProjectSites((current) => [
       ...current,
-      {
-        id: crypto.randomUUID(),
-        name: getSiteNameByIndex(current.length),
-        shape: "polygon",
-        length: round(polygonBounds.height / pixelsPerMeter),
-        width: round(polygonBounds.width / pixelsPerMeter),
-        boundary: {
-          x: round(polygonBounds.x),
-          y: round(polygonBounds.y),
-          width: round(polygonBounds.width),
-          height: round(polygonBounds.height),
-          polygon: polygonBoundary.map((point) => ({ x: round(point.x), y: round(point.y) })),
-          edgeLengths: polygonEdgeLengthState.resolvedLengths.map(round),
-        },
-      },
+      projectSite,
     ]);
-    setSiteLength(round(polygonBounds.height / pixelsPerMeter));
-    setSiteWidth(round(polygonBounds.width / pixelsPerMeter));
+    setSiteLength(projectSite.length);
+    setSiteWidth(projectSite.width);
     setPolygonBoundary([]);
     setEdgeLengthDrafts([]);
     setSelectionStepStatuses((current) => ({ ...current, boundary: "completed" }));
+  };
+
+  const createPolygonProjectSite = (siteIndex: number): ProjectSite | undefined => {
+    if (!cropSelection || polygonBoundary.length < 3 || !polygonEdgeLengthState?.isUsable) return undefined;
+
+    const polygonBounds = getPointsBounds(polygonBoundary);
+    const pixelsPerMeter = polygonEdgeLengthState.pixelsPerMeter;
+    if (!polygonBounds || !pixelsPerMeter || !Number.isFinite(pixelsPerMeter) || pixelsPerMeter <= 0) return undefined;
+
+    const length = round(polygonBounds.height / pixelsPerMeter);
+    const width = round(polygonBounds.width / pixelsPerMeter);
+    if (!Number.isFinite(length) || !Number.isFinite(width) || length <= 0 || width <= 0) return undefined;
+
+    return {
+      id: crypto.randomUUID(),
+      name: getSiteNameByIndex(siteIndex),
+      shape: "polygon",
+      length,
+      width,
+      boundary: {
+        x: round(polygonBounds.x),
+        y: round(polygonBounds.y),
+        width: round(polygonBounds.width),
+        height: round(polygonBounds.height),
+        polygon: polygonBoundary.map((point) => ({ x: round(point.x), y: round(point.y) })),
+        edgeLengths: polygonEdgeLengthState.resolvedLengths.map(round),
+      },
+    };
   };
 
   const confirmSiteDimensions = () => {
@@ -1417,10 +1470,13 @@ export function PdfSiteSetup() {
 
   const continueToEditor = () => {
     const sourceCanvas = canvasRef.current;
+    console.debug("[Polygon Boundary Debug] Layout Builder disabled reason", layoutBuilderDisabledReason);
     if (!sourceCanvas || !canContinue) return;
 
     if (!cropSelection) return;
-    const primarySite = projectSites[0];
+    const pendingPolygonSite = projectSites.length ? undefined : createPolygonProjectSite(0);
+    const sitesForExport = pendingPolygonSite ? [pendingPolygonSite, ...projectSites] : projectSites;
+    const primarySite = sitesForExport[0];
     if (!primarySite) return;
     const primaryBoundary = primarySite.boundary;
     const relativeBoundary = {
@@ -1443,6 +1499,14 @@ export function PdfSiteSetup() {
         Math.min(primaryBoundary.height / primarySite.length, primaryBoundary.width / primarySite.width),
       ),
     );
+    console.debug("[Polygon Boundary Debug] scale calculation result", {
+      primarySiteShape: primarySite.shape,
+      primaryBoundary,
+      primarySiteLength: primarySite.length,
+      primarySiteWidth: primarySite.width,
+      pixelsPerMeter,
+      polygonEdgePixelsPerMeter: polygonEdgeLengthState?.pixelsPerMeter,
+    });
 
     const siteData: SiteData = {
       ...defaultSiteData,
@@ -1498,7 +1562,7 @@ export function PdfSiteSetup() {
           : {}),
       },
       siteShape: primarySite.shape,
-      sites: projectSites.map((projectSite) => ({
+      sites: sitesForExport.map((projectSite) => ({
         ...projectSite,
         boundary: {
           ...projectSite.boundary,
@@ -3465,6 +3529,32 @@ function resolvePolygonEdgeLengths(points: ContextPoint[], drafts: string[]) {
             typeof parsedValues[index] === "number" ? parsedValues[index] : pixelLength * metersPerPixel,
           ),
   };
+}
+
+function getLayoutBuilderDisabledReason({
+  renderSize,
+  cropSelection,
+  projectSitesLength,
+  canUsePendingPolygonBoundary,
+  polygonBoundaryLength,
+  polygonEdgeLengthState,
+}: {
+  renderSize: { width: number; height: number };
+  cropSelection?: SelectionRect;
+  projectSitesLength: number;
+  canUsePendingPolygonBoundary: boolean;
+  polygonBoundaryLength: number;
+  polygonEdgeLengthState?: ReturnType<typeof resolvePolygonEdgeLengths>;
+}) {
+  if (!renderSize.width || !renderSize.height) return "PDF page has not rendered.";
+  if (!cropSelection) return "Crop area is missing.";
+  if (projectSitesLength > 0) return undefined;
+  if (canUsePendingPolygonBoundary) return undefined;
+  if (polygonBoundaryLength < 3) return "No completed site boundary exists.";
+  if (!polygonEdgeLengthState?.hasKnownValues) return "Polygon has no known edge lengths.";
+  if (polygonEdgeLengthState.hasInvalidValues) return "Polygon has invalid edge length values.";
+  if (!polygonEdgeLengthState.pixelsPerMeter) return "Polygon scale could not be calculated.";
+  return "Polygon boundary is not usable.";
 }
 
 function formatPolygonEdgeLength(value: number) {

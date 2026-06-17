@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from "react";
+import type { PointerEvent as ReactPointerEvent } from "react";
 import { ConceptPlanGallery } from "../components/ConceptPlanGallery";
 import { PropertyPanel } from "../components/PropertyPanel";
 import { SiteCanvas } from "../components/SiteCanvas";
 import { Toolbar } from "../components/Toolbar";
 import { createBridge, createCore, createRectangle, createToilet } from "../models/Building";
 import { defaultSiteData, siteDataToDimensions } from "../models/Site";
-import { exportConceptSitePlan } from "../services/conceptSitePlan";
+import { exportConceptSitePlan, type ExportArea } from "../services/conceptSitePlan";
 import { renderConceptPlanWithAi } from "../services/aiConceptRender";
 import {
   addConceptPlanExport,
@@ -22,11 +23,13 @@ import {
 import { buildLayoutJson, downloadLayoutJson, parseLayoutJson } from "../services/layoutStorage";
 import { normalizeProjectName } from "../services/projectName";
 import { cloneProjectSite, getPrimaryProjectSite, getProjectSites } from "../services/projectSites";
+import { getCoreParentBuildingRotation } from "../utils/coreRotation";
 import type {
   AncillaryBuilding,
   Building,
   ConceptPlanExport,
   ConceptPlanRenderedVersion,
+  ContextPoint,
   Entrance,
   EntranceLabel,
   ExistingBuilding,
@@ -94,6 +97,7 @@ export function SiteEditor() {
   );
   const [isConceptGalleryOpen, setIsConceptGalleryOpen] = useState(false);
   const [previewedConceptPlan, setPreviewedConceptPlan] = useState<ConceptPlanExport>();
+  const [pendingExportArea, setPendingExportArea] = useState<ExportArea>();
   const [backgroundImageSrc, setBackgroundImageSrc] = useState<string | undefined>(() =>
     sessionStorage.getItem("siteBackgroundImage") ?? undefined,
   );
@@ -105,7 +109,8 @@ export function SiteEditor() {
   const [backgroundOpacity, setBackgroundOpacity] = useState(0.5);
   const [showBackground, setShowBackground] = useState(true);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
-  const [showDistanceLines, setShowDistanceLines] = useState(true);
+  const [showBoundaryDistanceLines, setShowBoundaryDistanceLines] = useState(true);
+  const [showBuildingDimensions, setShowBuildingDimensions] = useState(true);
   const [layoutError, setLayoutError] = useState("");
   const [history, setHistory] = useState<{ past: EditorSnapshot[]; future: EditorSnapshot[] }>({
     past: [],
@@ -113,6 +118,7 @@ export function SiteEditor() {
   });
   const [clipboardItem, setClipboardItem] = useState<ClipboardItem>();
   const editStartSnapshotRef = useRef<EditorSnapshot | undefined>(undefined);
+  const viewportInsertionCenterRef = useRef<{ x: number; y: number } | undefined>(undefined);
 
   useEffect(() => {
     saveActiveProject(projectId, projectName);
@@ -133,6 +139,9 @@ export function SiteEditor() {
   }, [projectId]);
 
   const selectedBuilding = buildings.find((building) => building.id === selectedBuildingId);
+  const selectedCoreRotationSnapBase = selectedBuilding
+    ? getCoreParentBuildingRotation(selectedBuilding, buildings)
+    : 0;
   const selectedSiteLabel = siteLabels.find((label) => label.id === selectedSiteLabelId);
   const selectedTree = trees.find((tree) => tree.id === selectedTreeId);
   const selectedSidewalk = sidewalks.find((sidewalk) => sidewalk.id === selectedSidewalkId);
@@ -151,6 +160,24 @@ export function SiteEditor() {
       : undefined;
   const selectedProjectSite = getProjectSites(backgroundMeta, site).find((projectSite) => projectSite.id === selectedProjectSiteId);
   const analysisBounds = getEditorAnalysisBounds(backgroundMeta, site);
+  const getViewportInsertionCenter = () => {
+    const center = viewportInsertionCenterRef.current ?? {
+      x: site.width / 2,
+      y: site.length / 2,
+    };
+    return {
+      x: clamp(center.x, analysisBounds.minX, analysisBounds.maxX),
+      y: clamp(center.y, analysisBounds.minY, analysisBounds.maxY),
+    };
+  };
+  const placeBuildingAtViewportCenter = (building: Building): Building => {
+    const center = getViewportInsertionCenter();
+    return {
+      ...building,
+      x: clampObjectCoordinate(center.x - building.length / 2, analysisBounds.minX, analysisBounds.maxX, building.length),
+      y: clampObjectCoordinate(center.y - building.width / 2, analysisBounds.minY, analysisBounds.maxY, building.width),
+    };
+  };
   const createSnapshot = (): EditorSnapshot => ({
     buildings: cloneBuildings(buildings),
     siteLabels: cloneSiteLabels(siteLabels),
@@ -446,7 +473,7 @@ export function SiteEditor() {
     setEntrancePlacementLabel(undefined);
     const length = Number(window.prompt("Building Length", "20")) || 20;
     const width = Number(window.prompt("Building Width", "12")) || 12;
-    const building = createRectangle(length, width);
+    const building = placeBuildingAtViewportCenter(createRectangle(length, width));
     recordCurrent();
     setBuildings((current) => [...current, building]);
     setSelectedBuildingId(building.id);
@@ -461,7 +488,7 @@ export function SiteEditor() {
     setIsTreeToolActive(false);
     setIsSidewalkToolActive(false);
     setEntrancePlacementLabel(undefined);
-    const building = createBridge();
+    const building = placeBuildingAtViewportCenter(createBridge());
     recordCurrent();
     setBuildings((current) => [...current, building]);
     setSelectedBuildingId(building.id);
@@ -476,7 +503,7 @@ export function SiteEditor() {
     setIsTreeToolActive(false);
     setIsSidewalkToolActive(false);
     setEntrancePlacementLabel(undefined);
-    const building = createToilet();
+    const building = placeBuildingAtViewportCenter(createToilet());
     recordCurrent();
     setBuildings((current) => [...current, building]);
     setSelectedBuildingId(building.id);
@@ -491,7 +518,7 @@ export function SiteEditor() {
     setIsTreeToolActive(false);
     setIsSidewalkToolActive(false);
     setEntrancePlacementLabel(undefined);
-    const building = createCore(coreId);
+    const building = placeBuildingAtViewportCenter(createCore(coreId));
     recordCurrent();
     setBuildings((current) => [...current, building]);
     setSelectedBuildingId(building.id);
@@ -514,8 +541,8 @@ export function SiteEditor() {
       type: "siteLabel",
       text: text || "Main Square",
       fontSize: 18,
-      x: site.width / 2,
-      y: site.length / 2,
+      x: getViewportInsertionCenter().x,
+      y: getViewportInsertionCenter().y,
     };
 
     recordCurrent();
@@ -789,7 +816,21 @@ export function SiteEditor() {
       );
   };
 
-  const exportConceptPlan = async () => {
+  const openExportAreaSelection = () => {
+    setPendingExportArea(
+      getDefaultExportArea({
+        site,
+        buildings,
+        siteLabels,
+        trees,
+        sidewalks,
+        backgroundMeta,
+        analysisBounds,
+      }),
+    );
+  };
+
+  const exportConceptPlan = async (exportArea: ExportArea) => {
     try {
       const rendered = await exportConceptSitePlan(
         site,
@@ -809,8 +850,10 @@ export function SiteEditor() {
         backgroundMeta?.siteShape ?? "rectangle",
         getLayoutSiteVertices(backgroundMeta, site),
         backgroundMeta?.siteBoundary.edgeLengths ?? [],
-        showDistanceLines,
+        showBoundaryDistanceLines,
+        showBuildingDimensions,
         selectedBuildingId,
+        exportArea,
       );
       if (!rendered) {
         setLayoutError("Unable to render the concept site plan.");
@@ -827,10 +870,12 @@ export function SiteEditor() {
         exportedAt: rendered.exportedAt,
         previewDataUrl: rendered.previewDataUrl,
         thumbnailDataUrl: rendered.thumbnailDataUrl,
+        images: rendered.images,
         favorite: false,
       };
       addConceptPlanExport(item);
       setConceptPlanExports(readConceptPlanExports(projectId));
+      setPendingExportArea(undefined);
       setLayoutError("");
     } catch (error) {
       setLayoutError(
@@ -901,12 +946,10 @@ export function SiteEditor() {
             onRedo={redo}
             canUndo={history.past.length > 0}
             canRedo={history.future.length > 0}
-            showDistanceLines={showDistanceLines}
-            onToggleDistanceLines={() => setShowDistanceLines((current) => !current)}
             onToggleSidebar={() => setIsSidebarCollapsed((current) => !current)}
             isSidebarCollapsed={isSidebarCollapsed}
             onSaveLayout={openProjectDialog}
-            onExportConceptSitePlan={exportConceptPlan}
+            onExportConceptSitePlan={openExportAreaSelection}
             onOpenConceptPlanGallery={() => setIsConceptGalleryOpen(true)}
             conceptPlanExportCount={conceptPlanExports.length}
             onLoadLayout={loadLayout}
@@ -944,7 +987,8 @@ export function SiteEditor() {
           backgroundView={backgroundView}
           backgroundOpacity={backgroundOpacity}
           showBackground={showBackground}
-          showDistanceLines={showDistanceLines}
+          showBoundaryDistanceLines={showBoundaryDistanceLines}
+          showBuildingDimensions={showBuildingDimensions}
           onSiteChange={setSite}
           onSelectBuilding={(id) => {
             setSelectedBuildingId(id);
@@ -1058,6 +1102,9 @@ export function SiteEditor() {
           onPlaceEntrance={placeEntrance}
           onPlaceTree={placeTree}
           onPlaceSidewalk={placeSidewalk}
+          onViewportCenterChange={(center) => {
+            viewportInsertionCenterRef.current = center;
+          }}
           onChangeBuilding={upsertBuilding}
           onChangeSiteLabel={(label, recordHistory = true) => {
             if (recordHistory) recordCurrent();
@@ -1093,11 +1140,14 @@ export function SiteEditor() {
             backgroundView={backgroundView}
             backgroundOpacity={backgroundOpacity}
             showBackground={showBackground}
-            showDistanceLines={showDistanceLines}
+            showBoundaryDistanceLines={showBoundaryDistanceLines}
+            showBuildingDimensions={showBuildingDimensions}
+            coreRotationSnapBase={selectedCoreRotationSnapBase}
             onBackgroundViewChange={setBackgroundView}
             onBackgroundOpacityChange={setBackgroundOpacity}
             onShowBackgroundChange={setShowBackground}
-            onShowDistanceLinesChange={setShowDistanceLines}
+            onShowBoundaryDistanceLinesChange={setShowBoundaryDistanceLines}
+            onShowBuildingDimensionsChange={setShowBuildingDimensions}
             onProjectSiteChange={(projectSite) => {
               recordCurrent();
               updateProjectSite(projectSite);
@@ -1184,6 +1234,19 @@ export function SiteEditor() {
         onDelete={removeConceptPlan}
         onRender={renderConceptPlan}
       />
+      {pendingExportArea ? (
+        <ExportAreaDialog
+          area={pendingExportArea}
+          bounds={analysisBounds}
+          site={site}
+          buildings={buildings}
+          siteLabels={siteLabels}
+          trees={trees}
+          onAreaChange={setPendingExportArea}
+          onCancel={() => setPendingExportArea(undefined)}
+          onConfirm={() => exportConceptPlan(pendingExportArea)}
+        />
+      ) : null}
       {treeDiameterDialogId ? (
         <div
           className="modalBackdrop"
@@ -1262,6 +1325,156 @@ export function SiteEditor() {
   );
 }
 
+function ExportAreaDialog({
+  area,
+  bounds,
+  site,
+  buildings,
+  siteLabels,
+  trees,
+  onAreaChange,
+  onCancel,
+  onConfirm,
+}: {
+  area: ExportArea;
+  bounds: { minX: number; maxX: number; minY: number; maxY: number };
+  site: SiteDimensions;
+  buildings: Building[];
+  siteLabels: SiteLabel[];
+  trees: Tree[];
+  onAreaChange: (area: ExportArea) => void;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  const [dragState, setDragState] = useState<
+    | { mode: "move"; start: { x: number; y: number }; area: ExportArea }
+    | { mode: "resize"; start: { x: number; y: number }; area: ExportArea }
+  >();
+  const viewWidth = Math.max(1, bounds.maxX - bounds.minX);
+  const viewHeight = Math.max(1, bounds.maxY - bounds.minY);
+  const minimumSize = Math.max(2, Math.min(viewWidth, viewHeight) * 0.08);
+  const areaWidth = area.maxX - area.minX;
+  const areaHeight = area.maxY - area.minY;
+
+  const getPointer = (event: ReactPointerEvent<SVGElement>) => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    return {
+      x: bounds.minX + ((event.clientX - rect.left) / rect.width) * viewWidth,
+      y: bounds.minY + ((event.clientY - rect.top) / rect.height) * viewHeight,
+    };
+  };
+
+  const handlePointerMove = (event: ReactPointerEvent<SVGSVGElement>) => {
+    if (!dragState) return;
+    const point = getPointer(event);
+    const dx = point.x - dragState.start.x;
+    const dy = point.y - dragState.start.y;
+    if (dragState.mode === "move") {
+      onAreaChange(
+        clampExportArea(
+          {
+            minX: dragState.area.minX + dx,
+            maxX: dragState.area.maxX + dx,
+            minY: dragState.area.minY + dy,
+            maxY: dragState.area.maxY + dy,
+          },
+          bounds,
+          minimumSize,
+        ),
+      );
+      return;
+    }
+
+    onAreaChange(
+      clampExportArea(
+        {
+          ...dragState.area,
+          maxX: dragState.area.maxX + dx,
+          maxY: dragState.area.maxY + dy,
+        },
+        bounds,
+        minimumSize,
+      ),
+    );
+  };
+
+  return (
+    <div className="modalBackdrop" role="presentation" onMouseDown={onCancel}>
+      <section
+        className="exportAreaDialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="export-area-title"
+        onMouseDown={(event) => event.stopPropagation()}
+      >
+        <div>
+          <p className="eyebrow">Export concept site plan</p>
+          <h2 id="export-area-title">Select Export Area</h2>
+        </div>
+        <svg
+          className="exportAreaCanvas"
+          viewBox={`${bounds.minX} ${bounds.minY} ${viewWidth} ${viewHeight}`}
+          onPointerMove={handlePointerMove}
+          onPointerUp={() => setDragState(undefined)}
+          onPointerCancel={() => setDragState(undefined)}
+        >
+          <rect x={0} y={0} width={site.width} height={site.length} className="exportAreaSite" />
+          {buildings.map((building) => (
+            <rect
+              key={building.id}
+              x={building.x}
+              y={building.y}
+              width={building.length}
+              height={building.width}
+              className={building.type === "bridge" ? "exportAreaBridge" : "exportAreaBuilding"}
+              transform={`rotate(${building.rotation} ${building.x} ${building.y})`}
+            />
+          ))}
+          {trees.map((tree) => (
+            <circle key={tree.id} cx={tree.x} cy={tree.y} r={tree.radius} className="exportAreaTree" />
+          ))}
+          {siteLabels.map((label) => (
+            <circle key={label.id} cx={label.x} cy={label.y} r={1.2} className="exportAreaLabel" />
+          ))}
+          <rect
+            x={area.minX}
+            y={area.minY}
+            width={areaWidth}
+            height={areaHeight}
+            className="exportAreaSelection"
+            onPointerDown={(event) => {
+              event.currentTarget.setPointerCapture(event.pointerId);
+              setDragState({ mode: "move", start: getPointer(event), area });
+            }}
+          />
+          <rect
+            x={area.maxX - viewWidth * 0.025}
+            y={area.maxY - viewHeight * 0.025}
+            width={viewWidth * 0.025}
+            height={viewHeight * 0.025}
+            className="exportAreaResizeHandle"
+            onPointerDown={(event) => {
+              event.currentTarget.setPointerCapture(event.pointerId);
+              setDragState({ mode: "resize", start: getPointer(event), area });
+            }}
+          />
+        </svg>
+        <p className="muted">
+          The focused site image uses this area. A full context image will also be saved in the same gallery entry.
+        </p>
+        <div className="dialogActions">
+          <button className="secondaryButton" type="button" onClick={onCancel}>
+            Cancel
+          </button>
+          <button type="button" onClick={onConfirm}>
+            Confirm Export Area
+          </button>
+        </div>
+      </section>
+    </div>
+  );
+}
+
 function readBackgroundMeta(): PdfBackgroundMeta | undefined {
   const raw = sessionStorage.getItem("siteBackgroundMeta");
   if (!raw) return undefined;
@@ -1271,6 +1484,141 @@ function readBackgroundMeta(): PdfBackgroundMeta | undefined {
   } catch {
     return undefined;
   }
+}
+
+function getDefaultExportArea({
+  site,
+  buildings,
+  siteLabels,
+  trees,
+  sidewalks,
+  backgroundMeta,
+  analysisBounds,
+}: {
+  site: SiteDimensions;
+  buildings: Building[];
+  siteLabels: SiteLabel[];
+  trees: Tree[];
+  sidewalks: Sidewalk[];
+  backgroundMeta?: PdfBackgroundMeta;
+  analysisBounds: { minX: number; maxX: number; minY: number; maxY: number };
+}): ExportArea {
+  const points: Array<{ x: number; y: number }> = [
+    { x: 0, y: 0 },
+    { x: site.width, y: site.length },
+  ];
+
+  buildings.forEach((building) => {
+    points.push(...getBuildingCornerPoints(building));
+  });
+  siteLabels.forEach((label) => points.push({ x: label.x, y: label.y }));
+  trees.forEach((tree) => {
+    points.push(
+      { x: tree.x - tree.radius, y: tree.y - tree.radius },
+      { x: tree.x + tree.radius, y: tree.y + tree.radius },
+    );
+  });
+  sidewalks.forEach((sidewalk) => {
+    points.push(sidewalk.start, sidewalk.end);
+  });
+
+  const boundary = backgroundMeta?.siteBoundary;
+  const addBackgroundPoint = (point: { x: number; y: number }) => {
+    const converted = backgroundPointToAnalysis(point, site, boundary);
+    if (converted) points.push(converted);
+  };
+  backgroundMeta?.roads?.forEach((road) => getRoadPoints(road).forEach(addBackgroundPoint));
+  backgroundMeta?.contextZones?.forEach((zone) => zone.points.forEach(addBackgroundPoint));
+  backgroundMeta?.ancillaryBuildings?.forEach((building) => building.points.forEach(addBackgroundPoint));
+  backgroundMeta?.existingBuildings?.forEach((building) => building.points.forEach(addBackgroundPoint));
+  backgroundMeta?.existingTrees?.forEach((tree) => {
+    const center = backgroundPointToAnalysis(tree, site, boundary);
+    if (!center) return;
+    const radius = Math.max(0.5, tree.radius);
+    points.push(
+      { x: center.x - radius, y: center.y - radius },
+      { x: center.x + radius, y: center.y + radius },
+    );
+  });
+
+  const minX = Math.min(...points.map((point) => point.x));
+  const maxX = Math.max(...points.map((point) => point.x));
+  const minY = Math.min(...points.map((point) => point.y));
+  const maxY = Math.max(...points.map((point) => point.y));
+  const width = Math.max(1, maxX - minX);
+  const height = Math.max(1, maxY - minY);
+  const padding = Math.max(width, height) * 0.08;
+
+  return clampExportArea(
+    {
+      minX: minX - padding,
+      maxX: maxX + padding,
+      minY: minY - padding,
+      maxY: maxY + padding,
+    },
+    analysisBounds,
+    Math.max(2, Math.min(analysisBounds.maxX - analysisBounds.minX, analysisBounds.maxY - analysisBounds.minY) * 0.08),
+  );
+}
+
+function getBuildingCornerPoints(building: Building) {
+  const radians = (building.rotation * Math.PI) / 180;
+  return [
+    { x: 0, y: 0 },
+    { x: building.length, y: 0 },
+    { x: building.length, y: building.width },
+    { x: 0, y: building.width },
+  ].map((point) => ({
+    x: building.x + point.x * Math.cos(radians) - point.y * Math.sin(radians),
+    y: building.y + point.x * Math.sin(radians) + point.y * Math.cos(radians),
+  }));
+}
+
+function backgroundPointToAnalysis(
+  point: { x: number; y: number },
+  site: SiteDimensions,
+  boundary?: PdfBackgroundMeta["siteBoundary"],
+) {
+  if (!boundary?.width || !boundary.height) return undefined;
+  return {
+    x: ((point.x - boundary.x) / boundary.width) * site.width,
+    y: ((point.y - boundary.y) / boundary.height) * site.length,
+  };
+}
+
+function getRoadPoints(road: SetupRoad): ContextPoint[] {
+  if (road.points?.length) return road.points.map((point) => ({ ...point }));
+  if (
+    road.x !== undefined &&
+    road.y !== undefined &&
+    road.rectangleWidth !== undefined &&
+    road.rectangleHeight !== undefined
+  ) {
+    return [
+      { x: road.x, y: road.y },
+      { x: road.x + road.rectangleWidth, y: road.y },
+      { x: road.x + road.rectangleWidth, y: road.y + road.rectangleHeight },
+      { x: road.x, y: road.y + road.rectangleHeight },
+    ];
+  }
+  return [];
+}
+
+function clampExportArea(
+  area: ExportArea,
+  bounds: { minX: number; maxX: number; minY: number; maxY: number },
+  minimumSize: number,
+): ExportArea {
+  const width = Math.max(minimumSize, area.maxX - area.minX);
+  const height = Math.max(minimumSize, area.maxY - area.minY);
+  const minX = clamp(area.minX, bounds.minX, Math.max(bounds.minX, bounds.maxX - width));
+  const minY = clamp(area.minY, bounds.minY, Math.max(bounds.minY, bounds.maxY - height));
+  return {
+    minX,
+    minY,
+    maxX: Math.min(bounds.maxX, minX + width),
+    maxY: Math.min(bounds.maxY, minY + height),
+  };
 }
 
 function cloneBuildings(buildings: Building[]) {
@@ -1360,6 +1708,10 @@ function snapCardinalAngle(value: number) {
 function clampAnalysisCoordinate(value: number, min: number, max: number, padding: number) {
   const effectivePadding = Math.min(padding, (max - min) / 2);
   return clamp(value, min + effectivePadding, max - effectivePadding);
+}
+
+function clampObjectCoordinate(value: number, min: number, max: number, size: number) {
+  return clamp(value, min, Math.max(min, max - size));
 }
 
 function clamp(value: number, min: number, max: number) {

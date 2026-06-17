@@ -138,6 +138,7 @@ export type BuildingColor =
   | "#06b6d4"
   | "#9333ea"
   | "#8b5cf6"
+  | "#c9a46a"
   | "#ec4899"
   | "#14b8a6"
   | "#6b7280";
@@ -155,6 +156,7 @@ export interface Building {
   x: number;
   y: number;
   rotation: number;
+  snapToBuildingOrientation?: boolean;
 }
 
 export interface ProgramSpace {
@@ -220,8 +222,16 @@ export interface ConceptPlanExport {
   exportedAt: string;
   previewDataUrl: string;
   thumbnailDataUrl: string;
+  images?: ConceptPlanImage[];
   favorite: boolean;
   renderedVersions?: ConceptPlanRenderedVersion[];
+}
+
+export interface ConceptPlanImage {
+  id: string;
+  name: string;
+  previewDataUrl: string;
+  thumbnailDataUrl: string;
 }
 
 export interface ConceptPlanRenderedVersion {
@@ -282,6 +292,7 @@ export interface LayoutFile {
         x: number;
         y: number;
         rotation: number;
+        snapToBuildingOrientation?: boolean;
         color: BuildingColor;
       }
     | {
@@ -296,6 +307,7 @@ export interface LayoutFile {
         x: number;
         y: number;
         rotation: number;
+        snapToBuildingOrientation?: boolean;
         color: BuildingColor;
       }
   >;

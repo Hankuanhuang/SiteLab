@@ -155,8 +155,49 @@ function readExport(value: unknown): ConceptPlanExport[] {
     exportedAt: value.exportedAt,
     previewDataUrl: value.previewDataUrl,
     thumbnailDataUrl: value.thumbnailDataUrl,
+    images: readConceptPlanImages(value.images, value.previewDataUrl, value.thumbnailDataUrl),
     favorite: value.favorite === true,
     renderedVersions: readRenderedVersions(value.renderedVersions),
+  }];
+}
+
+function readConceptPlanImages(
+  value: unknown,
+  fallbackPreviewDataUrl: string,
+  fallbackThumbnailDataUrl: string,
+) {
+  if (!Array.isArray(value)) {
+    return [{
+      id: "focused",
+      name: "Focused Site Image",
+      previewDataUrl: fallbackPreviewDataUrl,
+      thumbnailDataUrl: fallbackThumbnailDataUrl,
+    }];
+  }
+
+  const images = value.flatMap((item) => {
+    if (
+      !isRecord(item) ||
+      typeof item.id !== "string" ||
+      typeof item.name !== "string" ||
+      typeof item.previewDataUrl !== "string" ||
+      typeof item.thumbnailDataUrl !== "string"
+    ) {
+      return [];
+    }
+    return [{
+      id: item.id,
+      name: item.name,
+      previewDataUrl: item.previewDataUrl,
+      thumbnailDataUrl: item.thumbnailDataUrl,
+    }];
+  });
+
+  return images.length ? images : [{
+    id: "focused",
+    name: "Focused Site Image",
+    previewDataUrl: fallbackPreviewDataUrl,
+    thumbnailDataUrl: fallbackThumbnailDataUrl,
   }];
 }
 

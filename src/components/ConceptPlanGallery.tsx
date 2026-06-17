@@ -27,17 +27,30 @@ export function ConceptPlanGallery({
   onRender,
 }: ConceptPlanGalleryProps) {
   const [selectedRenderId, setSelectedRenderId] = useState<string>();
+  const [selectedImageIndex, setSelectedImageIndex] = useState(0);
   const [isRendering, setIsRendering] = useState(false);
   const [renderError, setRenderError] = useState("");
 
   useEffect(() => {
     setSelectedRenderId(preview?.renderedVersions?.[0]?.id);
+    setSelectedImageIndex(0);
     setRenderError("");
   }, [preview?.id, preview?.renderedVersions]);
 
   const selectedRender = preview?.renderedVersions?.find(
     (item) => item.id === selectedRenderId,
   );
+  const previewImages = preview?.images?.length
+    ? preview.images
+    : preview
+      ? [{
+          id: "focused",
+          name: "Focused Site Image",
+          previewDataUrl: preview.previewDataUrl,
+          thumbnailDataUrl: preview.thumbnailDataUrl,
+        }]
+      : [];
+  const selectedImage = previewImages[Math.min(selectedImageIndex, Math.max(0, previewImages.length - 1))];
 
   const renderPreview = async () => {
     if (!preview || isRendering) return;
@@ -135,6 +148,27 @@ export function ConceptPlanGallery({
               </div>
             </div>
             {renderError ? <p className="conceptRenderError">{renderError}</p> : null}
+            {previewImages.length > 1 ? (
+              <div className="conceptImageNavigator" aria-label="Export image navigation">
+                <button
+                  className="secondaryButton compactButton"
+                  type="button"
+                  onClick={() => setSelectedImageIndex((current) => (current + previewImages.length - 1) % previewImages.length)}
+                  aria-label="Previous export image"
+                >
+                  ←
+                </button>
+                <span>{selectedImage?.name}</span>
+                <button
+                  className="secondaryButton compactButton"
+                  type="button"
+                  onClick={() => setSelectedImageIndex((current) => (current + 1) % previewImages.length)}
+                  aria-label="Next export image"
+                >
+                  →
+                </button>
+              </div>
+            ) : null}
             {preview.renderedVersions?.length ? (
               <div className="conceptRenderPicker">
                 <button
@@ -158,8 +192,8 @@ export function ConceptPlanGallery({
             ) : null}
             <div className={`conceptPreviewImage ${selectedRender ? "comparison" : ""}`}>
               <figure>
-                <figcaption>Original Export</figcaption>
-                <img src={preview.previewDataUrl} alt={`${preview.name} original concept site plan`} />
+                <figcaption>{selectedImage?.name ?? "Original Export"}</figcaption>
+                <img src={selectedImage?.previewDataUrl ?? preview.previewDataUrl} alt={`${preview.name} original concept site plan`} />
               </figure>
               {selectedRender ? (
                 <figure>

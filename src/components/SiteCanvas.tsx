@@ -22,6 +22,7 @@ import type {
 } from "../types/layout";
 import type { Tree } from "../types/layout";
 import { getPrimaryProjectSite, getProjectSiteBoundaryPoints, getProjectSites } from "../services/projectSites";
+import { getCoreParentBuildingRotation } from "../utils/coreRotation";
 import { getEntranceAnnotationGap, getEntranceLabelCoordinates } from "../utils/entranceAnnotation";
 import { getSidewalkPoints, getUnitNormal } from "../utils/sidewalkGeometry";
 import { BuildingShape } from "./BuildingShape";
@@ -50,7 +51,8 @@ interface SiteCanvasProps {
   backgroundView: PdfBackgroundView;
   backgroundOpacity: number;
   showBackground: boolean;
-  showDistanceLines: boolean;
+  showBoundaryDistanceLines: boolean;
+  showBuildingDimensions: boolean;
   onSiteChange: (site: SiteDimensions) => void;
   onSelectBuilding: (id?: string) => void;
   onSelectSiteLabel: (id?: string) => void;
@@ -65,6 +67,7 @@ interface SiteCanvasProps {
   onPlaceEntrance: (building: Building, localX: number, localY: number) => void;
   onPlaceTree: (x: number, y: number) => void;
   onPlaceSidewalk: (sidewalk: Omit<Sidewalk, "id" | "type" | "width" | "label">) => void;
+  onViewportCenterChange: (center: { x: number; y: number }) => void;
   onChangeBuilding: (building: Building, recordHistory?: boolean) => void;
   onChangeSiteLabel: (label: SiteLabel, recordHistory?: boolean) => void;
   onChangeTree: (tree: Tree, recordHistory?: boolean) => void;
@@ -127,7 +130,8 @@ export function SiteCanvas({
   backgroundView,
   backgroundOpacity,
   showBackground,
-  showDistanceLines,
+  showBoundaryDistanceLines,
+  showBuildingDimensions,
   onSiteChange,
   onSelectBuilding,
   onSelectSiteLabel,
@@ -142,6 +146,7 @@ export function SiteCanvas({
   onPlaceEntrance,
   onPlaceTree,
   onPlaceSidewalk,
+  onViewportCenterChange,
   onChangeBuilding,
   onChangeSiteLabel,
   onChangeTree,
@@ -257,6 +262,34 @@ export function SiteCanvas({
     siteBadgeGap,
     Math.max(siteBadgeGap, viewport.height - siteBadgeEstimatedHeight - siteBadgeGap),
   );
+
+  useEffect(() => {
+    if (buildingScale.x <= 0 || buildingScale.y <= 0) return;
+    onViewportCenterChange({
+      x: clampNumber(
+        (viewport.width / 2 - boundary.x) / buildingScale.x,
+        analysisBounds.minX,
+        analysisBounds.maxX,
+      ),
+      y: clampNumber(
+        (viewport.height / 2 - boundary.y) / buildingScale.y,
+        analysisBounds.minY,
+        analysisBounds.maxY,
+      ),
+    });
+  }, [
+    analysisBounds.maxX,
+    analysisBounds.maxY,
+    analysisBounds.minX,
+    analysisBounds.minY,
+    boundary.x,
+    boundary.y,
+    buildingScale.x,
+    buildingScale.y,
+    onViewportCenterChange,
+    viewport.height,
+    viewport.width,
+  ]);
 
   const fitToScreen = useCallback(() => {
     const rect = wrapRef.current?.getBoundingClientRect();
@@ -714,7 +747,8 @@ export function SiteCanvas({
               site={renderSite}
               renderScale={buildingScale}
               dragBounds={analysisBounds}
-              showDimensionAnnotations={showDistanceLines}
+              showDimensionAnnotations={showBuildingDimensions}
+              rotationSnapBase={getCoreParentBuildingRotation(building, buildings)}
               isSelected={building.id === selectedBuildingId}
               onSelect={() => onSelectBuilding(building.id)}
               onEntrancePlacement={isEntranceToolActive ? onPlaceEntrance : undefined}
@@ -763,7 +797,7 @@ export function SiteCanvas({
               onEditEnd={onEndBuildingEdit}
             />
           ))}
-          {showDistanceLines ? (
+          {showBoundaryDistanceLines ? (
             <>
               <BoundaryDimensionGuides
                 guides={boundaryDimensionGuides}

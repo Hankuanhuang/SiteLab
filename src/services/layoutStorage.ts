@@ -31,6 +31,7 @@ const buildingColors = new Set<string>([
   "#06b6d4",
   "#9333ea",
   "#8b5cf6",
+  "#c9a46a",
   "#ec4899",
   "#14b8a6",
   "#6b7280",
@@ -113,6 +114,7 @@ export function buildLayoutJson(
           coreVariant: building.coreVariant ?? (building.type === "stair" ? "thick" : "single"),
           length: round(building.length),
           width: round(building.width),
+          snapToBuildingOrientation: building.snapToBuildingOrientation !== false,
         };
       }
 
@@ -121,6 +123,9 @@ export function buildLayoutJson(
         type: building.type,
         length: round(building.length),
         width: round(building.width),
+        ...(building.type === "bridge" || building.type === "toilet"
+          ? { snapToBuildingOrientation: building.snapToBuildingOrientation !== false }
+          : {}),
       };
     }),
     siteLabels: siteLabels.map((label) => ({
@@ -369,6 +374,10 @@ function readBuilding(value: unknown): Building | undefined {
     x,
     y,
     rotation,
+    snapToBuildingOrientation:
+      value.type === "stair" || value.type === "elevator" || value.type === "bridge" || value.type === "toilet"
+        ? readBoolean(value.snapToBuildingOrientation) ?? true
+        : undefined,
   };
 }
 
@@ -771,6 +780,10 @@ function readNumber(value: unknown) {
 function readPositiveNumber(value: unknown) {
   const number = readNumber(value);
   return number !== undefined && number > 0 ? number : undefined;
+}
+
+function readBoolean(value: unknown) {
+  return typeof value === "boolean" ? value : undefined;
 }
 
 function readColor(value: unknown): BuildingColor | undefined {

@@ -2,6 +2,7 @@ import type { Building, BuildingColor, BuildingType, CoreVariant } from "../type
 
 export const DEFAULT_BUILDING_LABEL_FONT_SIZE = 14;
 export const DEFAULT_CORE_COLOR: BuildingColor = "#d1d5db";
+export const DEFAULT_BRIDGE_COLOR: BuildingColor = "#c9a46a";
 
 export interface CoreToolOption {
   id: string;
@@ -74,7 +75,7 @@ export function createBridge(): Building {
   return {
     id: crypto.randomUUID(),
     type: "bridge",
-    color: "#8b5cf6",
+    color: DEFAULT_BRIDGE_COLOR,
     label: "Bridge",
     labelFontSize: DEFAULT_BUILDING_LABEL_FONT_SIZE,
     programs: [],
@@ -83,6 +84,7 @@ export function createBridge(): Building {
     x: 2,
     y: 2,
     rotation: 0,
+    snapToBuildingOrientation: true,
   };
 }
 
@@ -99,6 +101,7 @@ export function createToilet(): Building {
     x: 4,
     y: 4,
     rotation: 0,
+    snapToBuildingOrientation: true,
   };
 }
 
@@ -121,6 +124,7 @@ export function createCore(coreId: string): Building {
     x: 4,
     y: 4,
     rotation: 0,
+    snapToBuildingOrientation: true,
   };
 }
 
