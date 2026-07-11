@@ -1,5 +1,3 @@
-<img width="1892" height="857" alt="existingBuilding" src="https://github.com/user-attachments/assets/05956cf2-e51e-4320-8f96-098f7b0d98e2" /># SiteLab
-
 ### Conceptual Site Planning for Architects
 
 Transform site plans into conceptual layouts.
