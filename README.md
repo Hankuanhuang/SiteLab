@@ -5,6 +5,10 @@ Transform site plans into conceptual layouts.
 <p align="center">
   <img src="./images/hero.png" width="1000">
 </p>
+![React](https://img.shields.io/badge/React-19-blue)
+![TypeScript](https://img.shields.io/badge/TypeScript-5-blue)
+![Vite](https://img.shields.io/badge/Vite-7-purple)
+![License](https://img.shields.io/badge/Status-Personal%20Project-success)
 
 ## Overview
 
@@ -117,3 +121,29 @@ Export presentation-ready concept site plans for design reviews and presentation
 
 - Save layouts
 - Export concept site plans
+
+## ⚙️ Tech Stack
+
+| Category | Technologies |
+|----------|--------------|
+| Frontend | React, TypeScript, Vite |
+| Canvas | Konva, React-Konva |
+| PDF Processing | PDF.js |
+| Version Control | Git, GitHub |
+
+## 💡 Why I Built SiteLab
+
+As someone with an architecture background, I wanted to simplify the early-stage site planning process.
+
+SiteLab was originally created to help Taiwanese architecture students rapidly explore multiple site planning solutions while preparing for the architectural licensing examination.
+
+Although it began as an exam preparation tool, the workflow can also be used for conceptual architectural design and urban planning studies.
+
+
+## 🚀 Future Improvements
+
+- AI-assisted concept rendering
+- Google Maps integration
+- Cloud project storage
+- Team collaboration
+- Multi-site project support
