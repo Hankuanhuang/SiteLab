@@ -5,10 +5,6 @@ Transform site plans into conceptual layouts.
 <p align="center">
   <img src="./images/hero.png" width="1000">
 </p>
-![React](https://img.shields.io/badge/React-19-blue)
-![TypeScript](https://img.shields.io/badge/TypeScript-5-blue)
-![Vite](https://img.shields.io/badge/Vite-7-purple)
-![License](https://img.shields.io/badge/Status-Personal%20Project-success)
 
 ## Overview
 
