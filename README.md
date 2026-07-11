@@ -1,4 +1,4 @@
-### Conceptual Site Planning for Architects
+# SiteLab
 
 Transform site plans into conceptual layouts.
 
