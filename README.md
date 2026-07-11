@@ -120,12 +120,12 @@ Export presentation-ready concept site plans for design reviews and presentation
 
 ## ⚙️ Tech Stack
 
-| Category | Technologies |
-|----------|--------------|
-| Frontend | React, TypeScript, Vite |
-| Canvas | Konva, React-Konva |
-| PDF Processing | PDF.js |
-| Version Control | Git, GitHub |
+| Category | Stack |
+|----------|-------|
+| **Frontend** | React · TypeScript · Vite |
+| **Canvas** | Konva · React-Konva |
+| **PDF Processing** | PDF.js |
+| **Version Control** | Git · GitHub |
 
 ## 💡 Why I Built SiteLab
 
