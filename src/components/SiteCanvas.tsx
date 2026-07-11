@@ -517,9 +517,6 @@ export function SiteCanvas({
       }}
       onWheel={handleCanvasWheel}
     >
-      <button className="fitButton secondaryButton" type="button" onClick={fitToScreen}>
-        Fit to Screen
-      </button>
       <section
         className="siteBadge"
         style={{

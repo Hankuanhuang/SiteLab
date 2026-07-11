@@ -659,14 +659,6 @@ p {
   user-select: none;
 }
 
-.fitButton {
-  position: absolute;
-  top: 14px;
-  right: 14px;
-  z-index: 2;
-  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.14);
-}
-
 .siteBadge {
   position: absolute;
   z-index: 2;

@@ -1,4 +1,4 @@
-# Feature: Site Selection and Site Layout Editor
+# Feature: SiteLab and Site Layout Editor
 
 ## Goal
 
@@ -28,12 +28,12 @@ The app also supports a sample-site path for testing without a PDF.
 
 ---
 
-## Site Selection Page
+## SiteLab Page
 
 File:
 
 ```text
-src/pages/SiteSelection.tsx
+src/pages/SiteLab.tsx
 ```
 
 The landing page presents two actions:
@@ -589,7 +589,7 @@ Example:
 ## Current Folder Structure
 
 ```text
-siteSelection/
+SiteLab/
 ├── src/
 │   ├── components/
 │   │   ├── BuildingShape.tsx
@@ -602,7 +602,7 @@ siteSelection/
 │   ├── pages/
 │   │   ├── PdfSiteSetup.tsx
 │   │   ├── SiteEditor.tsx
-│   │   └── SiteSelection.tsx
+│   │   └── SiteLab.tsx
 │   ├── services/
 │   │   └── layoutStorage.ts
 │   ├── types/

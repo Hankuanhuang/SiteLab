@@ -21,7 +21,7 @@ export function SiteSelection() {
   return (
     <main className="selectionPage">
       <section className="introPanel">
-        <p className="eyebrow">Site selection</p>
+        <p className="eyebrow">SiteLab</p>
         <h1>Site Boundary Selector</h1>
         <p>
           Upload a site plan PDF, choose the plan page, mark the site boundary area, and enter the real site size

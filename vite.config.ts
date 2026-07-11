@@ -20,6 +20,17 @@ export default defineConfig(({ mode }) => {
         },
       },
     ],
+    build: {
+      rollupOptions: {
+        output: {
+          manualChunks: {
+            pdf: ["pdfjs-dist"],
+            canvas: ["konva", "react-konva"],
+            react: ["react", "react-dom"],
+          },
+        },
+      },
+    },
   };
 });
 
