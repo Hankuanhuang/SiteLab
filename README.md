@@ -10,45 +10,80 @@ Transform site plans into conceptual layouts.
 
 ## Overview
 
-SiteLab is an interactive web application that helps architects and architecture students rapidly explore conceptual site planning ideas on top of real site plans.
+SiteLab is an interactive conceptual site planning tool for architects and architecture students.
 
-Users can import PDF site drawings, define site boundaries, map existing conditions, and design multiple layout concepts before exporting presentation-ready site plans.
+Import a PDF site plan, define site conditions, explore multiple layout concepts, and export presentation-ready site plans—all in one workflow.
 
 ## 🛠 User Workflow
+
 ### 1. Upload Site Plan
+
+Import a PDF site plan to start a new conceptual site planning project.
+
 <p align="center">
   <img src="./images/home.png" width="1000">
 </p>
 
+---
+
 ### 2. Crop Site
+
+Crop the target site from the original architectural drawing.
+
 <p align="center">
   <img src="./images/setup.png" width="1000">
 </p>
 
-### 3. Select Site Boundary
+---
+
+### 3. Define Site Boundary
+
+Define the site boundary using either rectangle or polygon mode.
+
 <p align="center">
   <img src="./images/select2.png" width="1000">
 </p>
 
+---
+
 ### 4. Set Real-World Scale
+
+Assign real-world dimensions to ensure accurate distance and area measurements.
+
 <p align="center">
   <img src="./images/siteBoundary.png" width="1000">
 </p>
 
+---
+
 ### 5. Map Existing Conditions
+
+Map existing buildings, trees, roads, green spaces, and other site elements.
+
 <p align="center">
   <img src="./images/existingBuilding.png" width="1000">
 </p>
 
+---
+
 ### 6. Design Site Layout
+
+Create, edit, and refine conceptual site layouts using interactive design tools.
+
 <p align="center">
   <img src="./images/siteedit.png" width="1000">
 </p>
+
 <p align="center">
   <img src="./images/editV1.png" width="1000">
 </p>
 
+---
+
 ### 7. Export Concept Site Plan
+
+Export presentation-ready concept site plans for design reviews and presentations.
+
 <p align="center">
   <img src="./images/hero2.png" width="1000">
 </p>
